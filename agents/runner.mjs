@@ -7,12 +7,17 @@
 // Usage:  node agents/runner.mjs          (continuous)
 //         node agents/runner.mjs --once   (drain current work, then exit)
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, openAsBlob } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { scratchRuntime } from "./scratch-tts.mjs";
+import { telegramToken } from "./env.mjs";
+import {
+  transcribe, alignSections, writeSrtFile, assemble, probeDuration,
+} from "./production.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKER = `runner-${process.pid}`;
@@ -47,7 +52,7 @@ function extractJson(text) {
   throw new Error("no JSON object found in agent output");
 }
 
-async function runDesk(deskName, prompt, { tools = [], maxTurns = 6 } = {}) {
+async function runDesk(deskName, prompt, { tools = [], maxTurns = 6, mcpServers } = {}) {
   console.log(`  → ${deskName} desk thinking…`);
   let finalText = "";
   const session = query({
@@ -57,6 +62,11 @@ async function runDesk(deskName, prompt, { tools = [], maxTurns = 6 } = {}) {
       allowedTools: tools,
       permissionMode: "bypassPermissions",
       maxTurns,
+      ...(mcpServers ? { mcpServers } : {}),
+      stderr: (d) => {
+        const line = String(d).trim();
+        if (line) console.error(`  [${deskName} stderr] ${line.slice(0, 300)}`);
+      },
     },
   });
   for await (const message of session) {
@@ -333,6 +343,193 @@ async function legalReview(storyId) {
   }
 }
 
+// ---- Production floor -----------------------------------------------------------
+
+const VAULT = join(ROOT, "media-vault");
+
+async function produceStory(storyId) {
+  const story = await client.mutation("pipeline:claimStory", { storyId, worker: WORKER });
+  if (!story) return;
+  console.log(`Production: ${story.title}`);
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  const { docText, settings } = await brainContext();
+  const script = detail.scripts.find((s) => s.status !== "superseded");
+  if (!script) {
+    await client.mutation("pipeline:transition", { storyId, to: "parked", note: "production: no script" });
+    return;
+  }
+
+  const outDir = join(VAULT, story.slug);
+  const assetDir = join(outDir, "assets");
+  mkdirSync(assetDir, { recursive: true });
+
+  // 1. generate images for approved gemini runs via the production agent
+  const geminiRuns = detail.runs.filter(
+    (r) => r.lane === "gemini_image" && r.status === "approved"
+  );
+  const otherRuns = detail.runs.filter(
+    (r) => r.lane !== "gemini_image" && r.status === "approved"
+  );
+  const sectionImages = {};
+  let agentNotes = "";
+  if (geminiRuns.length) {
+    const result = await runDesk(
+      "production",
+      [
+        docText,
+        "## Script sections (0-indexed)",
+        JSON.stringify(script.sections.map((s) => ({ kind: s.kind, text: s.text, visualNote: s.visualNote })), null, 2),
+        "## Claims ledger",
+        JSON.stringify(detail.claims.map((c) => ({ text: c.text, classification: c.classification })), null, 2),
+        "## Approved generation runs",
+        JSON.stringify(geminiRuns.map((r) => ({ lane: r.lane, model: r.model, count: r.count, quality: r.quality, format: r.format, note: r.note })), null, 2),
+        "## gen-image path",
+        join(ROOT, "agents", "gen-image.mjs"),
+        "## Story slug",
+        story.slug,
+        "## Output directory",
+        assetDir,
+      ].join("\n\n"),
+      { tools: ["Bash", "Read"], maxTurns: 40 }
+    );
+    agentNotes = result.notes ?? "";
+    for (const a of result.assets ?? []) {
+      if (!existsSync(a.path)) continue;
+      await client.mutation("production:addAsset", {
+        storyId, kind: "image", filePath: a.path, lane: "gemini_image",
+        meta: JSON.stringify({ sectionIndex: a.sectionIndex, prompt: a.prompt }),
+      });
+      if (sectionImages[a.sectionIndex] === undefined) sectionImages[a.sectionIndex] = a.path;
+    }
+    for (const run of geminiRuns) {
+      await client.mutation("production:recordRunResult", {
+        runId: run._id, status: "done", actualCostUsd: run.estCostUsd,
+      });
+    }
+    console.log(`  ${Object.keys(sectionImages).length} sections covered by generated images`);
+  }
+  let unwiredNote = "";
+  if (otherRuns.length) {
+    unwiredNote = `Lanes not yet wired (left approved, run manually): ${otherRuns.map((r) => r.lane).join(", ")}.`;
+    console.log(`  ${unwiredNote}`);
+  }
+
+  // 2. transcription, alignment, captions, assembly — only when a VO exists
+  const vo = detail.recordings.find((r) => r.kind === "vo" && r.filePath);
+  let masterNote = "no VO recording — image package only, no assembly";
+  if (vo && Object.keys(sectionImages).length) {
+    console.log("  transcribing VO…");
+    const words = transcribe(vo.filePath, outDir);
+    const alignment = alignSections(script.sections, words);
+    const srtPath = writeSrtFile(words, join(outDir, `${story.slug}.srt`));
+    await client.mutation("production:addAsset", {
+      storyId, kind: "caption", filePath: srtPath,
+      meta: JSON.stringify({ alignment }),
+    });
+    console.log("  assembling master…");
+    const masterPath = join(outDir, `${story.slug}-master.mp4`);
+    assemble({ alignment, sectionImages, voPath: vo.filePath, outPath: masterPath });
+    const dur = probeDuration(masterPath);
+    await client.mutation("production:addAsset", {
+      storyId, kind: "master", filePath: masterPath,
+      meta: JSON.stringify({ durationSec: dur, captionFree: true }),
+    });
+    masterNote = `caption-free master assembled (${dur}s) + SRT captions`;
+    console.log(`  master: ${masterPath} (${dur}s)`);
+  }
+
+  await client.mutation("pipeline:transition", {
+    storyId,
+    to: "gate2",
+    note: [masterNote, unwiredNote, agentNotes].filter(Boolean).join("\n"),
+  });
+  console.log("  → Gate 2");
+}
+
+// ---- Publishing desk --------------------------------------------------------------
+
+async function packageStory(storyId) {
+  const story = await client.mutation("pipeline:claimStory", { storyId, worker: WORKER });
+  if (!story) return;
+  console.log(`Packaging: ${story.title}`);
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  const { docText, settings } = await brainContext();
+  const script = detail.scripts.find((s) => s.status !== "superseded");
+  const outDir = join(VAULT, story.slug);
+  mkdirSync(outDir, { recursive: true });
+
+  const result = await runDesk(
+    "publishing-desk",
+    [
+      docText,
+      "## Story",
+      JSON.stringify({ title: story.title, job: story.job, platform: story.platform, format: story.format, angle: story.angle }, null, 2),
+      "## Script (as spoken)",
+      (script?.sections ?? []).map((s) => s.text).join("\n\n"),
+      "## Claims",
+      JSON.stringify(detail.claims.map((c) => ({ text: c.text, citation: c.citation })), null, 2),
+    ].join("\n\n"),
+    { maxTurns: 4 }
+  );
+
+  const master = detail.assets.find((a) => a.kind === "master");
+  const manifest = [
+    `# ${story.title}`,
+    "",
+    `Job: ${story.job} · Platform: ${story.platform ?? "?"} · Format: ${story.format ?? "?"}`,
+    "",
+    "## Caption",
+    "",
+    result.caption,
+    "",
+    "## Hashtags",
+    "",
+    (result.hashtags ?? []).join(" "),
+    "",
+    `## Cover text`,
+    "",
+    result.coverText ?? "",
+    result.postingNotes ? `\n## Posting notes\n\n${result.postingNotes}` : "",
+    "",
+    "## Files",
+    "",
+    ...detail.assets.map((a) => `- ${a.kind}: ${a.filePath}`),
+  ].join("\n");
+  const manifestPath = join(outDir, "MANIFEST.md");
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(manifestPath, manifest);
+  await client.mutation("production:addAsset", { storyId, kind: "other", filePath: manifestPath });
+
+  // hand-delivery to Telegram: master + caption, ready to download and post
+  const token = telegramToken();
+  let deliveryNote = "package written to media-vault";
+  if (token && master) {
+    try {
+      const form = new FormData();
+      form.append("chat_id", settings.telegram_delivery_chat_id ?? settings.telegram_chat_id);
+      const thread = settings.telegram_delivery_thread_id;
+      if (thread) form.append("message_thread_id", thread);
+      form.append(
+        "caption",
+        `${story.title}\n\n${result.caption}\n\n${(result.hashtags ?? []).join(" ")}`.slice(0, 1000)
+      );
+      form.append("video", await openAsBlob(master.filePath), `${story.slug}.mp4`);
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      deliveryNote = data.ok
+        ? "package delivered to Telegram — download and post"
+        : `telegram delivery failed: ${data.description}`;
+    } catch (err) {
+      deliveryNote = `telegram delivery failed: ${err.message}`;
+    }
+  }
+  console.log(`  ${deliveryNote}`);
+  await client.mutation("pipeline:transition", { storyId, to: "ready_to_post", note: deliveryNote });
+}
+
 // ---- Main loop --------------------------------------------------------------------
 
 const IDLE_MS = 20_000;
@@ -344,8 +541,15 @@ async function tick() {
     if (work.type === "tip") await processTip(work.id);
     else if (work.desk === "drafting") await draftStory(work.id);
     else if (work.desk === "legal_review") await legalReview(work.id);
+    else if (work.desk === "production") await produceStory(work.id);
+    else if (work.desk === "packaging") await packageStory(work.id);
   } catch (err) {
     console.error(`work item failed: ${err.message}`);
+    if (work.type === "story") {
+      await client
+        .mutation("pipeline:releaseStory", { storyId: work.id })
+        .catch(() => {});
+    }
     return false;
   }
   return true;

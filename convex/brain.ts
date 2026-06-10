@@ -126,6 +126,10 @@ export const seedDefaults = mutation({
       // (bf_emma = British female). Set enabled to "false" to skip.
       scratch_tts_enabled: "true",
       scratch_tts_voice: "bf_emma",
+      // Where finished publish packages get delivered (master + caption).
+      // Defaults to the SOCIAL POSTS thread Liz already downloads from.
+      telegram_delivery_chat_id: "-1003814611203",
+      telegram_delivery_thread_id: "70",
     };
     for (const [key, value] of Object.entries(defaults)) {
       const existing = await ctx.db

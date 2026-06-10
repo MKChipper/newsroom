@@ -211,7 +211,7 @@ export const nextWork = query({
       .first();
     if (tip) return { type: "tip" as const, id: tip._id };
 
-    for (const desk of ["drafting", "legal_review"] as const) {
+    for (const desk of ["drafting", "legal_review", "production", "packaging"] as const) {
       const stories = await ctx.db
         .query("stories")
         .withIndex("by_status", (q) => q.eq("status", desk))
@@ -235,6 +235,13 @@ export const claimStory = mutation({
     }
     await ctx.db.patch(storyId, { lockedBy: worker, lockedAt: Date.now() });
     return story;
+  },
+});
+
+export const releaseStory = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    await ctx.db.patch(storyId, { lockedBy: undefined, lockedAt: undefined });
   },
 });
 
