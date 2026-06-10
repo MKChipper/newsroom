@@ -167,6 +167,64 @@ export const gateDecision = mutation({
   },
 });
 
+// ---- Ratings desk -------------------------------------------------------------
+
+export const setMetrics = mutation({
+  args: {
+    storyId: v.id("stories"),
+    metrics: v.object({
+      views: v.number(),
+      likes: v.number(),
+      comments: v.number(),
+      saves: v.number(),
+      shares: v.number(),
+      clicks: v.number(),
+      follows: v.number(),
+      notes: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, { storyId, metrics }) => {
+    await ctx.db.patch(storyId, {
+      metrics: { ...metrics, recordedAt: Date.now() },
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const postedStories = query({
+  args: {},
+  handler: async (ctx) => {
+    const posted = await ctx.db
+      .query("stories")
+      .withIndex("by_status", (q) => q.eq("status", "posted"))
+      .collect();
+    const rated = await ctx.db
+      .query("stories")
+      .withIndex("by_status", (q) => q.eq("status", "rated"))
+      .collect();
+    return { posted, rated };
+  },
+});
+
+export const saveMemo = mutation({
+  args: { week: v.string(), body: v.string() },
+  handler: async (ctx, { week, body }) => {
+    const existing = await ctx.db
+      .query("memos")
+      .withIndex("by_week", (q) => q.eq("week", week))
+      .first();
+    if (existing) await ctx.db.patch(existing._id, { body });
+    else await ctx.db.insert("memos", { week, body });
+  },
+});
+
+export const memosList = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("memos").order("desc").take(20);
+  },
+});
+
 // ---- Tip line ---------------------------------------------------------------
 
 export const addTip = mutation({
@@ -252,6 +310,18 @@ export const claimTip = mutation({
     if (!tip || tip.status !== "new") return null;
     await ctx.db.patch(tipId, { status: "processing" });
     return tip;
+  },
+});
+
+export const resetTip = mutation({
+  args: { tipId: v.id("tips") },
+  handler: async (ctx, { tipId }) => {
+    await ctx.db.patch(tipId, { status: "new", extracted: undefined, sourceGrade: undefined });
+    const claims = await ctx.db
+      .query("claims")
+      .withIndex("by_tip", (q) => q.eq("tipId", tipId))
+      .collect();
+    for (const c of claims) await ctx.db.delete(c._id);
   },
 });
 

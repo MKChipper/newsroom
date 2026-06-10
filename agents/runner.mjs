@@ -94,6 +94,19 @@ async function brainContext() {
 
 const countWords = (t) => t.trim().split(/\s+/).filter(Boolean).length;
 
+// agents emit `null` for missing optionals (their JSON contracts say so);
+// Convex optionals want the field absent — normalise here, once
+const sanitizeClaims = (claims) =>
+  (claims ?? []).map((c) => ({
+    text: String(c.text ?? ""),
+    classification: ["sourced", "inferred", "opinion", "unsafe"].includes(c.classification)
+      ? c.classification
+      : "opinion",
+    citation: c.citation ?? undefined,
+    brandNames: Array.isArray(c.brandNames) ? c.brandNames.map(String) : [],
+    riskNote: c.riskNote ?? undefined,
+  })).filter((c) => c.text);
+
 // ---- Tip line + story desk ---------------------------------------------------
 
 async function processTip(tipId) {
@@ -114,10 +127,23 @@ async function processTip(tipId) {
     .filter(Boolean)
     .join("\n\n");
 
-  const result = await runDesk("tip-line", tipPrompt, {
-    tools: ["WebFetch", "WebSearch", "Read"],
-    maxTurns: 12,
-  });
+  let result;
+  try {
+    result = await runDesk("tip-line", tipPrompt, {
+      tools: ["WebFetch", "WebSearch", "Read"],
+      maxTurns: 30,
+    });
+  } catch (err) {
+    // don't leave the tip stuck in "processing" — reject with the reason so
+    // Liz can see it on the tip line and re-file
+    await client.mutation("pipeline:finishTip", {
+      tipId,
+      extracted: `tip-line desk error: ${err.message}`,
+      sourceGrade: "D",
+      status: "rejected",
+    });
+    throw err;
+  }
 
   await client.mutation("pipeline:finishTip", {
     tipId,
@@ -131,7 +157,8 @@ async function processTip(tipId) {
   });
   if (result.status === "rejected") return;
 
-  await client.mutation("production:addClaims", { tipId, claims: result.claims ?? [] });
+  const tipClaims = sanitizeClaims(result.claims);
+  await client.mutation("production:addClaims", { tipId, claims: tipClaims });
 
   // chain straight into the story desk
   const deskPrompt = [
@@ -153,12 +180,12 @@ async function processTip(tipId) {
       score: s.score,
       brainVersion,
     });
-    const storyClaims = (result.claims ?? []).filter((c) =>
+    const storyClaims = tipClaims.filter((c) =>
       (s.claimTexts ?? []).some((t) => c.text.includes(t) || t.includes(c.text))
     );
     await client.mutation("production:addClaims", {
       storyId,
-      claims: storyClaims.length ? storyClaims : result.claims ?? [],
+      claims: storyClaims.length ? storyClaims : tipClaims,
     });
     console.log(`  filed story card: ${s.title} [${s.job}]`);
   }
@@ -203,7 +230,7 @@ async function draftStory(storyId) {
       text: s.text,
       wordCount,
       estSeconds: Math.round((wordCount / wpm) * 60 * 10) / 10,
-      visualNote: s.visualNote,
+      visualNote: s.visualNote ?? undefined,
     };
   });
 
@@ -227,12 +254,12 @@ async function draftStory(storyId) {
   // price the generation plan from the live price table
   const priceTable = JSON.parse(settings.price_table ?? "{}");
   const runs = (result.generationPlan ?? []).map((r) => ({
-    lane: r.lane,
-    model: r.model,
-    count: r.count,
-    quality: r.quality,
-    format: r.format,
-    note: r.note,
+    lane: String(r.lane),
+    model: String(r.model),
+    count: Number(r.count) || 1,
+    quality: String(r.quality),
+    format: String(r.format),
+    note: r.note ?? undefined,
     estCostUsd:
       Math.round((priceTable[`${r.lane}:${r.quality}`] ?? 0) * r.count * 100) / 100,
   }));
@@ -286,7 +313,7 @@ async function legalReview(storyId) {
             text: s.text,
             wordCount,
             estSeconds: Math.round((wordCount / wpm) * 60 * 10) / 10,
-            visualNote: s.visualNote,
+            visualNote: s.visualNote ?? undefined,
           };
         }),
         targetRuntimeSec: script.targetRuntimeSec,

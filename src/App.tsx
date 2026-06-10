@@ -15,7 +15,7 @@ const COLUMNS: { title: string; statuses: string[] }[] = [
 ];
 
 export default function App() {
-  const [view, setView] = useState<"board" | "tips" | "recording" | "brain" | "settings">("board");
+  const [view, setView] = useState<"board" | "tips" | "recording" | "memos" | "brain" | "settings">("board");
   const [selected, setSelected] = useState<Id<"stories"> | null>(null);
   const spend = useQuery(api.production.monthSpend);
 
@@ -24,7 +24,7 @@ export default function App() {
       <header>
         <h1>NEWSROOM</h1>
         <nav>
-          {(["board", "tips", "recording", "brain", "settings"] as const).map((v) => (
+          {(["board", "tips", "recording", "memos", "brain", "settings"] as const).map((v) => (
             <button key={v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
               {v === "board" ? "Floor" : v === "tips" ? "Tip line" : v[0].toUpperCase() + v.slice(1)}
             </button>
@@ -38,6 +38,7 @@ export default function App() {
         {view === "board" && <Board selected={selected} setSelected={setSelected} />}
         {view === "tips" && <TipLine />}
         {view === "recording" && <RecordingDesk />}
+        {view === "memos" && <Memos />}
         {view === "brain" && <Brain />}
         {view === "settings" && <Settings />}
         {view === "board" && selected && (
@@ -235,6 +236,73 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
           </button>
         )}
       </div>
+
+      {(story.status === "posted" || story.status === "rated") && (
+        <MetricsForm storyId={storyId} metrics={story.metrics} />
+      )}
+    </div>
+  );
+}
+
+const METRIC_KEYS = ["views", "likes", "comments", "saves", "shares", "clicks", "follows"] as const;
+
+function MetricsForm({ storyId, metrics }: { storyId: Id<"stories">; metrics?: any }) {
+  const setMetrics = useMutation(api.pipeline.setMetrics);
+  const [m, setM] = useState<any>(() => {
+    const init: any = { notes: metrics?.notes ?? "" };
+    for (const k of METRIC_KEYS) init[k] = metrics?.[k] ?? 0;
+    return init;
+  });
+  return (
+    <>
+      <h3>Numbers (feeds the Monday memo)</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        {METRIC_KEYS.map((k) => (
+          <div key={k}>
+            <label>{k}</label>
+            <input
+              type="number"
+              value={m[k]}
+              onChange={(e) => setM({ ...m, [k]: Number(e.target.value) })}
+            />
+          </div>
+        ))}
+      </div>
+      <label>Notes (comment quality, anything the numbers miss)</label>
+      <input value={m.notes} onChange={(e) => setM({ ...m, notes: e.target.value })} />
+      <div className="actions">
+        <button
+          className="act"
+          onClick={() => {
+            const { notes, ...nums } = m;
+            setMetrics({ storyId, metrics: { ...nums, notes: notes || undefined } });
+          }}
+        >
+          Save numbers
+        </button>
+      </div>
+    </>
+  );
+}
+
+function Memos() {
+  const memos = useQuery(api.pipeline.memosList) ?? [];
+  return (
+    <div className="page">
+      <h2>Monday memos</h2>
+      <p className="note">
+        Run <code>npm run memo</code> after adding numbers to posted stories. Each story is
+        judged only against the one job it was commissioned for.
+      </p>
+      {memos.length === 0 && <p className="empty" style={{ marginTop: 20 }}>No memos yet.</p>}
+      {memos.map((m: any) => (
+        <div className="doccard" key={m._id} style={{ cursor: "default" }}>
+          <strong>{m.week}</strong>
+          <div className="note" style={{ whiteSpace: "pre-wrap", marginTop: 8, color: "var(--ink)" }}>
+            {m.body}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

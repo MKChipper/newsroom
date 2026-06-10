@@ -6,3 +6,6 @@ dist/
 *.log
 recordings-inbox/
 media-vault/
+Newsroom.app/
+.telegram-offset
+.firecrawl/

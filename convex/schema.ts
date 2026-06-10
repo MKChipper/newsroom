@@ -50,6 +50,19 @@ export default defineSchema({
       })
     ),
     brainVersion: v.optional(v.number()),
+    metrics: v.optional(
+      v.object({
+        views: v.number(),
+        likes: v.number(),
+        comments: v.number(),
+        saves: v.number(),
+        shares: v.number(),
+        clicks: v.number(),
+        follows: v.number(),
+        notes: v.optional(v.string()),
+        recordedAt: v.number(),
+      })
+    ),
     needsRecording: v.optional(v.boolean()),
     statusNote: v.optional(v.string()),
     lockedBy: v.optional(v.string()),
