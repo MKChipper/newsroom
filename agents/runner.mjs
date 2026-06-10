@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { scratchRuntime } from "./scratch-tts.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKER = `runner-${process.pid}`;
@@ -284,17 +285,33 @@ async function legalReview(storyId) {
     }
     const latest = await client.query("pipeline:storyDetail", { storyId });
     const current = latest.scripts.find((s) => s.status === "draft");
+    let gateNote = result.riskSummary ?? "";
     if (current) {
       await client.mutation("production:setScriptStatus", {
         scriptId: current._id,
         status: "legal_passed",
         legalNotes: result.riskSummary,
       });
+      // scratch TTS: measure real spoken duration before Liz records
+      if ((settings.scratch_tts_enabled ?? "true") !== "false") {
+        const spoken = current.sections.map((s) => s.text).join("\n\n");
+        const sec = scratchRuntime(spoken, settings.scratch_tts_voice ?? "bf_emma");
+        if (sec) {
+          await client.mutation("production:setScratchRuntime", {
+            scriptId: current._id,
+            scratchRuntimeSec: sec,
+          });
+          console.log(`  scratch read: ${sec}s (target ${current.targetRuntimeSec}s)`);
+          if (sec > current.targetRuntimeSec * 1.1) {
+            gateNote += `\n⚠ Scratch read ran ${sec}s against a ${current.targetRuntimeSec}s target — copy likely needs a trim before recording.`;
+          }
+        }
+      }
     }
     await client.mutation("pipeline:transition", {
       storyId,
       to: "gate1",
-      note: result.riskSummary,
+      note: gateNote || undefined,
     });
     console.log("  passed → Gate 1");
   } else {
@@ -335,6 +352,7 @@ async function tick() {
 }
 
 console.log(`Newsroom runner ${WORKER} — polling ${convexUrl()}`);
+await client.mutation("brain:seedDefaults", {});
 for (;;) {
   const didWork = await tick();
   if (!didWork) {

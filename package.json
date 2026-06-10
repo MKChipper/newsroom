@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "backend": "convex dev",
     "agents": "node agents/runner.mjs",
+    "staff": "node agents/staff.mjs",
+    "gates": "node agents/telegram-gates.mjs",
+    "inbox": "node agents/inbox-watcher.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

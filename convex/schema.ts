@@ -109,6 +109,7 @@ export default defineSchema({
     totalWords: v.number(),
     estRuntimeSec: v.number(),
     targetRuntimeSec: v.number(),
+    scratchRuntimeSec: v.optional(v.number()),
     voiceNotes: v.optional(v.string()),
     legalNotes: v.optional(v.string()),
     status: v.union(
@@ -166,6 +167,16 @@ export default defineSchema({
     filePath: v.optional(v.string()),
     durationSec: v.optional(v.number()),
     transcriptPath: v.optional(v.string()),
+  })
+    .index("by_story", ["storyId"])
+    .index("by_status", ["status"]),
+
+  telegramNotices: defineTable({
+    storyId: v.id("stories"),
+    gate: v.number(),
+    chatId: v.string(),
+    messageId: v.number(),
+    status: v.union(v.literal("sent"), v.literal("answered")),
   })
     .index("by_story", ["storyId"])
     .index("by_status", ["status"]),

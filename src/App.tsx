@@ -117,7 +117,9 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
           <h3>Script v{script.version}</h3>
           <div className="runtime">
             <span>
-              {script.totalWords}w · est {script.estRuntimeSec.toFixed(0)}s / target {script.targetRuntimeSec}s
+              {script.totalWords}w · est {script.estRuntimeSec.toFixed(0)}s
+              {script.scratchRuntimeSec ? ` · scratch read ${script.scratchRuntimeSec.toFixed(0)}s` : ""}
+              {" / target "}{script.targetRuntimeSec}s
             </span>
             <div className="bar">
               <i

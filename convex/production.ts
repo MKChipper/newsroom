@@ -92,6 +92,13 @@ export const saveScript = mutation({
   },
 });
 
+export const setScratchRuntime = mutation({
+  args: { scriptId: v.id("scripts"), scratchRuntimeSec: v.number() },
+  handler: async (ctx, { scriptId, scratchRuntimeSec }) => {
+    await ctx.db.patch(scriptId, { scratchRuntimeSec });
+  },
+});
+
 export const setScriptStatus = mutation({
   args: {
     scriptId: v.id("scripts"),

@@ -20,9 +20,29 @@ npx convex dev
 # 2. Dashboard
 npm run dev          # http://localhost:5180
 
-# 3. Agents (separate terminal; uses your Claude Code auth)
-npm run agents       # or: node agents/runner.mjs --once
+# 3. Staff (separate terminal; uses your Claude Code auth)
+npm run staff        # desks + telegram gates + recordings inbox, supervised
+# or individually:
+npm run agents       # desk runner only (--once to drain and exit)
+npm run gates        # telegram gate buttons (--dry-run to preview messages)
+npm run inbox        # recordings-inbox watcher (--once to scan and exit)
 ```
+
+Gates from your phone: when a story reaches Gate 1 or 2, @deinfluencedbot
+posts the script + generation manifest with Approve / Redo / Kill buttons
+(Redo asks you to reply with a note for the desks). Where messages land is
+set by `telegram_chat_id` / `telegram_thread_id` in Settings. The bot token
+is found automatically (env, `.env.local`, or the studio `.env`).
+
+Recordings: the recording desk lists everything owed. Record, then drop
+files into `recordings-inbox/` named `[story-slug].[vo|intro].[wav/m4a/mp3]`
+— duration is probed, the file moves to `media-vault/[slug]/`, and the story
+resumes into production on its own.
+
+Scratch TTS: after a script passes legal, a local Kokoro voice reads it and
+the measured duration shows next to the word-count estimate ("scratch read
+29s / target 32s"). Scripts that read more than 10% over target arrive at
+Gate 1 with a trim warning — so you never record a script that's too long.
 
 Then, in the dashboard:
 1. Settings → Seed defaults, then set real numbers in `price_table` and your

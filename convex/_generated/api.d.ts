@@ -11,6 +11,7 @@
 import type * as brain from "../brain.js";
 import type * as pipeline from "../pipeline.js";
 import type * as production from "../production.js";
+import type * as telegram from "../telegram.js";
 
 import type {
   ApiFromModules,
@@ -22,6 +23,7 @@ declare const fullApi: ApiFromModules<{
   brain: typeof brain;
   pipeline: typeof pipeline;
   production: typeof production;
+  telegram: typeof telegram;
 }>;
 
 /**

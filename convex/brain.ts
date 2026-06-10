@@ -116,6 +116,16 @@ export const seedDefaults = mutation({
         "higgsfield_video:10s": 1.0,
         "tts_scratch:per_run": 0,
       }),
+      // Telegram gate notifications. chat_id defaults to the De-Influenced
+      // group; thread_id empty = the General topic. Point these wherever
+      // you want gate messages to land.
+      telegram_chat_id: "-1003814611203",
+      telegram_thread_id: "",
+      // Scratch TTS: synthesises the VO script after legal pass and measures
+      // real spoken duration before Liz records. Voice is a Kokoro voice id
+      // (bf_emma = British female). Set enabled to "false" to skip.
+      scratch_tts_enabled: "true",
+      scratch_tts_voice: "bf_emma",
     };
     for (const [key, value] of Object.entries(defaults)) {
       const existing = await ctx.db

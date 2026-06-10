@@ -32,8 +32,11 @@
 
 - [x] Phase 1 — spine: schema, state machine, desk packs (tip line, story
       desk, writers' room, legal desk), runner, dashboard.
-- [ ] Phase 2 — Telegram gates (approve/redo/kill from phone),
-      recordings-inbox file watcher, scratch-TTS runtime check.
+- [x] Phase 2 — Telegram gates (approve/redo/kill from phone via
+      @deinfluencedbot), recordings-inbox file watcher (auto-resume),
+      scratch-TTS runtime check (Kokoro bf_emma via hyperframes; runs after
+      legal pass, flags scripts that read >10% over target). `npm run staff`
+      runs all three workers.
 - [ ] Phase 3 — production floor: generation lanes with manifest pricing,
       Whisper alignment, HyperFrames assembly, house-style palette audit.
 - [ ] Phase 4 — ratings desk + Monday memo, Tauri wrap, menubar.

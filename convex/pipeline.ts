@@ -61,6 +61,16 @@ export const storyDetail = query({
   },
 });
 
+export const storyBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    return await ctx.db
+      .query("stories")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first();
+  },
+});
+
 export const createStory = mutation({
   args: {
     title: v.string(),

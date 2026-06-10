@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./convex/brain.ts","./convex/pipeline.ts","./convex/production.ts","./convex/schema.ts","./convex/_generated/api.d.ts","./convex/_generated/datamodel.d.ts","./convex/_generated/server.d.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./convex/brain.ts","./convex/pipeline.ts","./convex/production.ts","./convex/schema.ts","./convex/telegram.ts","./convex/_generated/api.d.ts","./convex/_generated/datamodel.d.ts","./convex/_generated/server.d.ts"],"version":"5.9.3"}
