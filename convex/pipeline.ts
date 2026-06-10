@@ -1,0 +1,251 @@
+import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+import { storyStatus, job } from "./schema";
+
+// ---- Pipeline state machine -------------------------------------------------
+// idea          story desk filed it; waiting for Liz to commission
+// drafting      writers' room (agent)
+// legal_review  legal desk (agent)
+// gate1         copy + generation manifest awaiting Liz approval
+// recording     waiting on Liz VO / intro files
+// production    asset generation + assembly (agent, phase 3)
+// gate2         final cut awaiting Liz approval
+// packaging     publish package being written (agent)
+// ready_to_post package delivered; Liz posts by hand
+// posted        Liz marked it live
+// rated         ratings desk has scored it against its job
+
+const TRANSITIONS: Record<string, string[]> = {
+  idea: ["drafting", "parked", "killed"],
+  drafting: ["legal_review", "parked", "killed"],
+  legal_review: ["gate1", "drafting", "parked", "killed"],
+  gate1: ["recording", "production", "drafting", "killed", "parked"],
+  recording: ["production", "parked", "killed"],
+  production: ["gate2", "parked", "killed"],
+  gate2: ["packaging", "production", "killed", "parked"],
+  packaging: ["ready_to_post"],
+  ready_to_post: ["posted", "parked", "killed"],
+  posted: ["rated"],
+  parked: ["idea", "drafting", "killed"],
+  rated: [],
+  killed: [],
+};
+
+export const board = query({
+  args: {},
+  handler: async (ctx) => {
+    const stories = await ctx.db.query("stories").collect();
+    return stories.sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+});
+
+export const storyDetail = query({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    const story = await ctx.db.get(storyId);
+    if (!story) return null;
+    const byStory = (table: "claims" | "scripts" | "generationRuns" | "assets" | "recordings" | "gateEvents") =>
+      ctx.db
+        .query(table)
+        .withIndex("by_story", (q) => q.eq("storyId", storyId))
+        .collect();
+    const [claims, scripts, runs, assets, recordings, gates] = await Promise.all([
+      byStory("claims"),
+      byStory("scripts"),
+      byStory("generationRuns"),
+      byStory("assets"),
+      byStory("recordings"),
+      byStory("gateEvents"),
+    ]);
+    return { story, claims, scripts, runs, assets, recordings, gates };
+  },
+});
+
+export const createStory = mutation({
+  args: {
+    title: v.string(),
+    slug: v.string(),
+    job,
+    angle: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    platform: v.optional(v.string()),
+    format: v.optional(v.string()),
+    score: v.optional(
+      v.object({
+        hook: v.number(),
+        evidence: v.number(),
+        effort: v.number(),
+        risk: v.number(),
+        total: v.number(),
+      })
+    ),
+    brainVersion: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("stories", {
+      ...args,
+      status: "idea",
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const transition = mutation({
+  args: {
+    storyId: v.id("stories"),
+    to: storyStatus,
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { storyId, to, note }) => {
+    const story = await ctx.db.get(storyId);
+    if (!story) throw new Error("story not found");
+    const allowed = TRANSITIONS[story.status] ?? [];
+    if (!allowed.includes(to)) {
+      throw new Error(`illegal transition ${story.status} -> ${to}`);
+    }
+    await ctx.db.patch(storyId, {
+      status: to,
+      statusNote: note,
+      lockedBy: undefined,
+      lockedAt: undefined,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const gateDecision = mutation({
+  args: {
+    storyId: v.id("stories"),
+    gate: v.number(),
+    decision: v.union(v.literal("approve"), v.literal("redo"), v.literal("kill")),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { storyId, gate, decision, note }) => {
+    const story = await ctx.db.get(storyId);
+    if (!story) throw new Error("story not found");
+    await ctx.db.insert("gateEvents", { storyId, gate, decision, note });
+
+    let to: string;
+    if (decision === "kill") to = "killed";
+    else if (gate === 1) {
+      to =
+        decision === "approve"
+          ? story.needsRecording
+            ? "recording"
+            : "production"
+          : "drafting";
+      if (decision === "approve") {
+        // approving gate 1 also approves the planned generation manifest
+        const runs = await ctx.db
+          .query("generationRuns")
+          .withIndex("by_story", (q) => q.eq("storyId", storyId))
+          .collect();
+        for (const run of runs) {
+          if (run.status === "planned") {
+            await ctx.db.patch(run._id, { status: "approved" });
+          }
+        }
+      }
+    } else {
+      to = decision === "approve" ? "packaging" : "production";
+    }
+    await ctx.db.patch(storyId, {
+      status: to as any,
+      statusNote: note,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// ---- Tip line ---------------------------------------------------------------
+
+export const addTip = mutation({
+  args: {
+    kind: v.union(
+      v.literal("url"),
+      v.literal("pdf"),
+      v.literal("note"),
+      v.literal("reddit"),
+      v.literal("ruling"),
+      v.literal("screenshot")
+    ),
+    sourceUrl: v.optional(v.string()),
+    filePath: v.optional(v.string()),
+    rawText: v.optional(v.string()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("tips", { ...args, status: "new" });
+  },
+});
+
+export const tipsList = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("tips").order("desc").take(100);
+  },
+});
+
+// ---- Agent runner coordination ----------------------------------------------
+// Agent-actionable work, in priority order. The runner claims one item at a
+// time; locks older than 30 minutes are treated as dead and reclaimed.
+
+const LOCK_TTL_MS = 30 * 60 * 1000;
+
+export const nextWork = query({
+  args: {},
+  handler: async (ctx) => {
+    const tip = await ctx.db
+      .query("tips")
+      .withIndex("by_status", (q) => q.eq("status", "new"))
+      .first();
+    if (tip) return { type: "tip" as const, id: tip._id };
+
+    for (const desk of ["drafting", "legal_review"] as const) {
+      const stories = await ctx.db
+        .query("stories")
+        .withIndex("by_status", (q) => q.eq("status", desk))
+        .collect();
+      const free = stories.find(
+        (s) => !s.lockedBy || (s.lockedAt ?? 0) < Date.now() - LOCK_TTL_MS
+      );
+      if (free) return { type: "story" as const, id: free._id, desk };
+    }
+    return null;
+  },
+});
+
+export const claimStory = mutation({
+  args: { storyId: v.id("stories"), worker: v.string() },
+  handler: async (ctx, { storyId, worker }) => {
+    const story = await ctx.db.get(storyId);
+    if (!story) return null;
+    if (story.lockedBy && (story.lockedAt ?? 0) > Date.now() - LOCK_TTL_MS) {
+      return null;
+    }
+    await ctx.db.patch(storyId, { lockedBy: worker, lockedAt: Date.now() });
+    return story;
+  },
+});
+
+export const claimTip = mutation({
+  args: { tipId: v.id("tips") },
+  handler: async (ctx, { tipId }) => {
+    const tip = await ctx.db.get(tipId);
+    if (!tip || tip.status !== "new") return null;
+    await ctx.db.patch(tipId, { status: "processing" });
+    return tip;
+  },
+});
+
+export const finishTip = mutation({
+  args: {
+    tipId: v.id("tips"),
+    extracted: v.string(),
+    sourceGrade: v.string(),
+    status: v.union(v.literal("processed"), v.literal("rejected")),
+  },
+  handler: async (ctx, { tipId, extracted, sourceGrade, status }) => {
+    await ctx.db.patch(tipId, { extracted, sourceGrade, status });
+  },
+});
