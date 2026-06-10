@@ -215,7 +215,9 @@ async function draftStory(storyId) {
     "## Claims ledger",
     JSON.stringify(detail.claims, null, 2),
     "## Timing",
-    `speech_wpm: ${wpm}\ntargetRuntimeSec: ${target}`,
+    target > 0
+      ? `speech_wpm: ${wpm}\ntargetRuntimeSec: ${target}`
+      : `This is a static format (${story.format}) — no spoken runtime budget. Write per-slide copy: each section is one slide, tight enough to read in a feed.`,
     story.statusNote ? `## Editor/legal notes from last round\n${story.statusNote}` : "",
   ]
     .filter(Boolean)
@@ -329,8 +331,9 @@ async function legalReview(storyId) {
         status: "legal_passed",
         legalNotes: result.riskSummary,
       });
-      // scratch TTS: measure real spoken duration before Liz records
-      if ((settings.scratch_tts_enabled ?? "true") !== "false") {
+      // scratch TTS: measure real spoken duration before Liz records.
+      // static formats (carousel — target 0) have no runtime to check.
+      if ((settings.scratch_tts_enabled ?? "true") !== "false" && current.targetRuntimeSec > 0) {
         const spoken = current.sections.map((s) => s.text).join("\n\n");
         const sec = scratchRuntime(spoken, settings.scratch_tts_voice ?? "bf_emma");
         if (sec) {
