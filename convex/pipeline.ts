@@ -313,6 +313,23 @@ export const claimTip = mutation({
   },
 });
 
+export const deleteStory = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    for (const table of [
+      "claims", "scripts", "generationRuns", "assets", "recordings",
+      "gateEvents", "telegramNotices",
+    ] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_story", (q) => q.eq("storyId", storyId))
+        .collect();
+      for (const r of rows) await ctx.db.delete(r._id);
+    }
+    await ctx.db.delete(storyId);
+  },
+});
+
 export const resetTip = mutation({
   args: { tipId: v.id("tips") },
   handler: async (ctx, { tipId }) => {
