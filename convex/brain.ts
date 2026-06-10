@@ -58,6 +58,17 @@ export const saveDoc = mutation({
   },
 });
 
+export const deleteDoc = mutation({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const versions = await ctx.db
+      .query("brainDocs")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .collect();
+    for (const doc of versions) await ctx.db.delete(doc._id);
+  },
+});
+
 export const brainVersion = query({
   args: {},
   handler: async (ctx) => {

@@ -319,9 +319,13 @@ function RecordingDesk() {
   );
 }
 
+const slugify = (s: string) =>
+  s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
 function Brain() {
   const docs = useQuery(api.brain.docs) ?? [];
   const saveDoc = useMutation(api.brain.saveDoc);
+  const deleteDoc = useMutation(api.brain.deleteDoc);
   const [slug, setSlug] = useState("");
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<any>("voice");
@@ -340,14 +344,24 @@ function Brain() {
       {docs.map((d: any) => (
         <div className="doccard" key={d._id} onClick={() => load(d)}>
           <strong>{d.title}</strong> <span className="chip">{d.kind}</span>{" "}
-          <span className="chip">v{d.version}</span>
+          <span className="chip">v{d.version}</span>{" "}
+          <span
+            className="chip"
+            style={{ cursor: "pointer", float: "right" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Delete "${d.title}" (all versions)?`)) deleteDoc({ slug: d.slug });
+            }}
+          >
+            delete
+          </span>
           <div className="note">{d.body.slice(0, 140)}</div>
         </div>
       ))}
       <h3 style={{ marginTop: 24 }}>Add / update doc</h3>
       <div className="row2">
         <div>
-          <label>Slug</label>
+          <label>Slug (doc identity — reuse to update, blank = from title)</label>
           <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="voice-corpus" />
         </div>
         <div>
@@ -368,7 +382,10 @@ function Brain() {
       <div className="actions">
         <button
           className="act"
-          onClick={() => { if (slug && title && body) { saveDoc({ slug, title, kind, body }); setBody(""); setSlug(""); setTitle(""); } }}
+          onClick={() => {
+            const s = slugify(slug || title);
+            if (s && title && body) { saveDoc({ slug: s, title, kind, body }); setBody(""); setSlug(""); setTitle(""); }
+          }}
         >
           Save to brain
         </button>
