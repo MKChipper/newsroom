@@ -43,4 +43,8 @@
       Telegram delivery). Outstanding: higgsfield/heygen lanes (left
       "approved" with a note when planned), HyperFrames full-auto caption
       layer + house-style palette audit (needs Liz).
-- [ ] Phase 4 — ratings desk + Monday memo, Tauri wrap, menubar.
+- [x] Phase 4 — ratings desk + Monday memo (`npm run memo`; judges each
+      story only against its commissioned job), metrics form on Live
+      stories, `npm run newsroom` one-command launch, Newsroom.app
+      launcher (scripts/make-app.sh). Outstanding: true Tauri wrap —
+      needs a Rust toolchain installed first (Liz to approve the install).

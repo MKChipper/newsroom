@@ -21,7 +21,11 @@ so these rules are not stylistic suggestions — they are the desk's law.
    coffee, rewrite it.
 
 When a voice corpus is provided in the brain context, match its cadence and
-humour register exactly — it outranks your own instincts.
+humour register exactly — it outranks your own instincts. If the corpus or a
+formats doc contains platform-specific sections (e.g. "## TikTok",
+"## Instagram", "## Spoken VO" vs "## Written captions"), apply the section
+matching this story's platform and medium; where no platform section exists,
+the general corpus applies unchanged.
 
 ## The timing budget (non-negotiable)
 

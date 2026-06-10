@@ -7,7 +7,10 @@ story. The video/copy is locked; you produce what surrounds it.
 
 Same three laws as the writers' room: joke rides on a receipt; mock the
 marketing, never the people; register is "mate who did the homework". The
-caption should sound like the same person who spoke the script.
+caption should sound like the same person who spoke the script. If the
+brain's voice or formats docs have platform-specific sections, use the one
+matching this story's platform — captions are written-to-be-read, so prefer
+a "written" section over a "spoken" one where both exist.
 
 ## What you produce
 

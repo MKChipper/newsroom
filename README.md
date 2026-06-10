@@ -7,25 +7,26 @@ rated. You are editor-in-chief; you commission ideas, approve copy + spend at
 Gate 1, record batched VO/intros, approve the final cut at Gate 2, and post by
 hand. Everything else is staff.
 
-## First run
+## Run it
 
 ```bash
 cd ~/Developer/newsroom
-npm install
+npm run newsroom     # everything: backend + dashboard + all workers
+```
 
-# 1. Backend — first time opens a browser login, then keeps types in sync.
-#    Leave it running in its own terminal.
-npx convex dev
+Or double-click `Newsroom.app` (rebuild it any time with
+`scripts/make-app.sh`). Dashboard: http://localhost:5180
 
-# 2. Dashboard
-npm run dev          # http://localhost:5180
+Pieces individually, if you ever need them:
 
-# 3. Staff (separate terminal; uses your Claude Code auth)
-npm run staff        # desks + telegram gates + recordings inbox, supervised
-# or individually:
-npm run agents       # desk runner only (--once to drain and exit)
-npm run gates        # telegram gate buttons (--dry-run to preview messages)
+```bash
+npx convex dev       # backend only
+npm run dev          # dashboard only
+npm run staff        # workers only (desks + gates + inbox)
+npm run agents       # desk runner (--once to drain and exit)
+npm run gates        # telegram gate buttons (--dry-run to preview)
 npm run inbox        # recordings-inbox watcher (--once to scan and exit)
+npm run memo         # Monday memo — run after adding numbers to Live stories
 ```
 
 Gates from your phone: when a story reaches Gate 1 or 2, @deinfluencedbot
