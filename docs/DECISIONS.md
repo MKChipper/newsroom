@@ -37,6 +37,10 @@
       scratch-TTS runtime check (Kokoro bf_emma via hyperframes; runs after
       legal pass, flags scripts that read >10% over target). `npm run staff`
       runs all three workers.
-- [ ] Phase 3 — production floor: generation lanes with manifest pricing,
-      Whisper alignment, HyperFrames assembly, house-style palette audit.
+- [x] Phase 3 — production floor: gemini_image lane (direct API via
+      agents/gen-image.mjs), Whisper VO alignment, SRT captions, ffmpeg
+      caption-free master, publishing desk (caption/hashtags/MANIFEST +
+      Telegram delivery). Outstanding: higgsfield/heygen lanes (left
+      "approved" with a note when planned), HyperFrames full-auto caption
+      layer + house-style palette audit (needs Liz).
 - [ ] Phase 4 — ratings desk + Monday memo, Tauri wrap, menubar.
