@@ -225,7 +225,16 @@ export const sendToAssembly = mutation({
     if (unpicked.length) {
       throw new Error(`${unpicked.length} slide(s) have no selected visual`);
     }
-    // register winners as story assets so assembly + gate 2 see them
+    // register winners as story assets so assembly + gate 2 see them —
+    // replacing any image assets from earlier rounds (re-design must not
+    // mix old visuals with new picks)
+    const oldImages = await ctx.db
+      .query("assets")
+      .withIndex("by_story", (q) => q.eq("storyId", storyId))
+      .collect();
+    for (const a of oldImages) {
+      if (a.kind === "image") await ctx.db.delete(a._id);
+    }
     for (const s of slides) {
       const winner = await ctx.db.get(s.selectedCandidateId!);
       if (winner) {
