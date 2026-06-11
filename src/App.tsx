@@ -5,10 +5,12 @@ import type { Id } from "../convex/_generated/dataModel";
 
 const COLUMNS: { title: string; statuses: string[] }[] = [
   { title: "Ideas", statuses: ["idea"] },
+  { title: "Angle room", statuses: ["angle"] },
   { title: "Desks at work", statuses: ["drafting", "legal_review"] },
   { title: "Gate 1 — copy", statuses: ["gate1"] },
+  { title: "Design studio", statuses: ["design"] },
   { title: "Recording", statuses: ["recording"] },
-  { title: "Production", statuses: ["production", "packaging"] },
+  { title: "Assembly", statuses: ["production", "packaging"] },
   { title: "Gate 2 — final", statuses: ["gate2"] },
   { title: "Ready to post", statuses: ["ready_to_post"] },
   { title: "Live", statuses: ["posted", "rated"] },
@@ -104,7 +106,7 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
   };
 
   return (
-    <div className="detail">
+    <div className="detail" style={story.status === "design" ? { width: 760 } : undefined}>
       <button className="act ghost" style={{ float: "right" }} onClick={close}>×</button>
       <h2>{story.title}</h2>
       <div className="meta">
@@ -120,6 +122,9 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
           <div className="statusnote">{story.statusNote}</div>
         </>
       )}
+
+      {story.status === "angle" && <AngleRoom storyId={storyId} currentAngle={story.angle} />}
+      {story.status === "design" && <DesignStudio storyId={storyId} />}
 
       {script && (
         <>
@@ -242,8 +247,11 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
       <div className="actions">
         {story.status === "idea" && (
           <>
-            <button className="act" onClick={() => transition({ storyId, to: "drafting" })}>
-              Commission
+            <button className="act" onClick={() => transition({ storyId, to: "angle" })}>
+              To the angle room
+            </button>
+            <button className="act ghost" onClick={() => transition({ storyId, to: "drafting" })}>
+              Straight to draft
             </button>
             <button className="act danger" onClick={() => transition({ storyId, to: "killed" })}>
               Spike it
@@ -288,6 +296,250 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
         <MetricsForm storyId={storyId} metrics={story.metrics} />
       )}
     </div>
+  );
+}
+
+function AngleRoom({ storyId, currentAngle }: { storyId: Id<"stories">; currentAngle?: string }) {
+  const thread = useQuery(api.design.angleThread, { storyId }) ?? [];
+  const send = useMutation(api.design.addAngleMessage);
+  const lock = useMutation(api.design.lockAngle);
+  const [draft, setDraft] = useState("");
+  const [angleDraft, setAngleDraft] = useState(currentAngle ?? "");
+  const awaitingDesk = thread.length > 0 && thread[thread.length - 1].role === "liz";
+
+  return (
+    <>
+      <h3>Angle room — argue it into shape, then lock it</h3>
+      {thread.length === 0 && (
+        <p className="note">
+          Open with your take on the angle — the desk will push back, bring its own,
+          and argue from the receipts. Lock when you've agreed.
+        </p>
+      )}
+      {thread.map((m: any) => (
+        <div
+          key={m._id}
+          className="statusnote"
+          style={{
+            marginBottom: 8,
+            background: m.role === "liz" ? "var(--card)" : undefined,
+            borderStyle: m.role === "liz" ? "solid" : "dashed",
+          }}
+        >
+          <strong style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            {m.role === "liz" ? "You" : "Desk"}
+          </strong>
+          <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{m.text}</div>
+        </div>
+      ))}
+      {awaitingDesk && <p className="note">desk is thinking…</p>}
+      <textarea
+        style={{ minHeight: 70 }}
+        placeholder="your take, your pushback, your question…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <div className="actions">
+        <button
+          className="act"
+          disabled={!draft.trim()}
+          onClick={() => { send({ storyId, role: "liz", text: draft.trim() }); setDraft(""); }}
+        >
+          Send
+        </button>
+      </div>
+      <h3>Lock the angle</h3>
+      <textarea
+        style={{ minHeight: 50 }}
+        placeholder="the agreed editorial spine, 1-2 sentences — the writers' room drafts from this"
+        value={angleDraft}
+        onChange={(e) => setAngleDraft(e.target.value)}
+      />
+      <div className="actions">
+        <button
+          className="act"
+          disabled={!angleDraft.trim()}
+          onClick={() => lock({ storyId, angle: angleDraft.trim() })}
+        >
+          Lock angle → writers' room
+        </button>
+      </div>
+    </>
+  );
+}
+
+const PROVIDER_MODELS: Record<string, string[]> = {
+  higgsfield: ["gpt_image_2", "flux_2", "nano_banana_2", "text2image_soul_v2", "grok_image"],
+  gemini: ["gemini-3-pro-image", "gemini-3.1-flash-image"],
+  fal: ["fal-ai/flux/dev", "fal-ai/flux-pro/v1.1", "fal-ai/flux/schnell", "fal-ai/recraft-v3"],
+};
+
+function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
+  const board = useQuery(api.design.board, { storyId });
+  const updatePrompt = useMutation(api.design.updatePrompt);
+  const selectCandidate = useMutation(api.design.selectCandidate);
+  const queueGen = useMutation(api.design.queueGen);
+  const sendToAssembly = useMutation(api.design.sendToAssembly);
+  const [gen, setGen] = useState({ provider: "higgsfield", model: "gpt_image_2", count: 2, aspect: "9:16", quality: "high" });
+  const [prompts, setPrompts] = useState<Record<string, string>>({});
+  const [err, setErr] = useState("");
+  const mediaUrl = (p: string) => "/media/" + p.split("/media-vault/").pop();
+
+  if (!board) return null;
+  const { slides, candidates, requests } = board as any;
+  const slideCands = (id: string) => candidates.filter((c: any) => c.slideId === id);
+  const mockups = candidates.filter((c: any) => c.kind === "mockup");
+  const busy = (id?: string) =>
+    requests.some((r: any) => (id ? r.slideId === id : r.kind === "mockup") && ["queued", "running"].includes(r.status));
+  const lastFail = (id?: string) =>
+    requests.filter((r: any) => (id ? r.slideId === id : r.kind === "mockup") && r.status === "failed").slice(-1)[0];
+  const allPicked = slides.length > 0 && slides.every((s: any) => s.selectedCandidateId);
+
+  const fire = (slide: any | null, prompt: string) =>
+    queueGen({
+      storyId,
+      slideId: slide?._id,
+      kind: slide ? "slide" : "mockup",
+      provider: gen.provider,
+      model: gen.model,
+      count: slide ? Number(gen.count) : 1,
+      aspect: slide ? gen.aspect : "16:9",
+      quality: gen.quality,
+      prompt,
+    });
+
+  return (
+    <>
+      <h3>Design studio — your prompts, your picks</h3>
+      <div className="row2" style={{ alignItems: "end", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <label>Provider</label>
+          <select
+            value={gen.provider}
+            onChange={(e) => {
+              const provider = e.target.value;
+              setGen({ ...gen, provider, model: PROVIDER_MODELS[provider][0] });
+            }}
+          >
+            {Object.keys(PROVIDER_MODELS).map((p) => <option key={p}>{p}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Model</label>
+          <select value={gen.model} onChange={(e) => setGen({ ...gen, model: e.target.value })}>
+            {PROVIDER_MODELS[gen.provider].map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </div>
+        <div style={{ maxWidth: 70 }}>
+          <label>Count</label>
+          <input type="number" min={1} max={4} value={gen.count}
+            onChange={(e) => setGen({ ...gen, count: Number(e.target.value) })} />
+        </div>
+        <div style={{ maxWidth: 90 }}>
+          <label>Aspect</label>
+          <select value={gen.aspect} onChange={(e) => setGen({ ...gen, aspect: e.target.value })}>
+            {["9:16", "4:5", "1:1", "16:9"].map((a) => <option key={a}>{a}</option>)}
+          </select>
+        </div>
+        <div style={{ maxWidth: 100 }}>
+          <label>Quality</label>
+          <select value={gen.quality} onChange={(e) => setGen({ ...gen, quality: e.target.value })}>
+            {["high", "medium", "low"].map((q) => <option key={q}>{q}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="actions">
+        <button
+          className="act ghost"
+          disabled={busy()}
+          onClick={() =>
+            fire(
+              null,
+              `single storyboard contact sheet, ${slides.length} panels in a grid, sketch/concept style, one panel per beat: ` +
+                slides.map((s: any, i: number) => `panel ${i + 1}: ${s.visualNote ?? s.voLine}`).join("; ") +
+                ". No readable text in panels."
+            )
+          }
+        >
+          {busy() ? "Mockup generating…" : "⊞ Storyboard mockup (cheap vibe check)"}
+        </button>
+      </div>
+      {lastFail() && <div className="statusnote" style={{ color: "var(--accent)" }}>mockup failed: {lastFail().error}</div>}
+      {mockups.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6, margin: "8px 0" }}>
+          {mockups.map((c: any) => (
+            <a key={c._id} href={mediaUrl(c.filePath)} target="_blank" rel="noreferrer">
+              <img src={mediaUrl(c.filePath)} style={{ width: "100%", borderRadius: 6, display: "block" }} />
+            </a>
+          ))}
+        </div>
+      )}
+
+      {slides.map((s: any) => {
+        const cands = slideCands(s._id);
+        const fail = lastFail(s._id);
+        return (
+          <div key={s._id} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 12, background: "var(--card)" }}>
+            <div className="kind" style={{ fontSize: 11, textTransform: "uppercase", color: "var(--muted)" }}>
+              {s.order + 1} · {s.kind}
+            </div>
+            <div style={{ margin: "4px 0 8px" }}>{s.voLine}</div>
+            <label>Prompt (yours to rewrite)</label>
+            <textarea
+              style={{ minHeight: 60 }}
+              value={prompts[s._id] ?? s.prompt}
+              onChange={(e) => setPrompts({ ...prompts, [s._id]: e.target.value })}
+              onBlur={(e) => {
+                if (e.target.value !== s.prompt) updatePrompt({ slideId: s._id, prompt: e.target.value });
+              }}
+            />
+            <div className="actions" style={{ marginTop: 8 }}>
+              <button className="act" disabled={busy(s._id)} onClick={() => fire(s, prompts[s._id] ?? s.prompt)}>
+                {busy(s._id) ? "Generating…" : `Generate ×${gen.count} (${gen.provider})`}
+              </button>
+              {s.selectedCandidateId && (
+                <button className="act ghost" onClick={() => selectCandidate({ slideId: s._id, candidateId: undefined })}>
+                  Clear pick
+                </button>
+              )}
+            </div>
+            {fail && <div className="statusnote" style={{ color: "var(--accent)", marginTop: 6 }}>failed: {fail.error}</div>}
+            {cands.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 8 }}>
+                {cands.map((c: any) => (
+                  <img
+                    key={c._id}
+                    src={mediaUrl(c.filePath)}
+                    title={`${c.provider}/${c.model}`}
+                    onClick={() => selectCandidate({ slideId: s._id, candidateId: c._id })}
+                    style={{
+                      width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: 6,
+                      cursor: "pointer", display: "block",
+                      outline: s.selectedCandidateId === c._id ? "3px solid var(--ok)" : "1px solid var(--line)",
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {slides.length === 0 && <p className="note">seeding storyboard from the approved script…</p>}
+      {err && <div className="statusnote" style={{ color: "var(--accent)" }}>{err}</div>}
+      <div className="actions">
+        <button
+          className="act"
+          disabled={!allPicked}
+          onClick={async () => {
+            try { setErr(""); await sendToAssembly({ storyId }); }
+            catch (e: any) { setErr(e.message ?? String(e)); }
+          }}
+        >
+          {allPicked ? "Send to assembly →" : "Pick a visual for every row first"}
+        </button>
+      </div>
+    </>
   );
 }
 

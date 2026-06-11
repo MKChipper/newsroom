@@ -16,17 +16,19 @@ import { storyStatus, job } from "./schema";
 // rated         ratings desk has scored it against its job
 
 const TRANSITIONS: Record<string, string[]> = {
-  idea: ["drafting", "parked", "killed"],
+  idea: ["angle", "drafting", "parked", "killed"],
+  angle: ["drafting", "parked", "killed"],
   drafting: ["legal_review", "parked", "killed"],
   legal_review: ["gate1", "drafting", "parked", "killed"],
-  gate1: ["recording", "production", "drafting", "killed", "parked"],
+  gate1: ["design", "recording", "production", "drafting", "killed", "parked"],
+  design: ["recording", "production", "drafting", "parked", "killed"],
   recording: ["production", "parked", "killed"],
-  production: ["gate2", "parked", "killed"],
-  gate2: ["packaging", "production", "killed", "parked"],
+  production: ["gate2", "design", "parked", "killed"],
+  gate2: ["packaging", "production", "design", "killed", "parked"],
   packaging: ["ready_to_post"],
   ready_to_post: ["posted", "parked", "killed"],
   posted: ["rated"],
-  parked: ["idea", "drafting", "killed"],
+  parked: ["idea", "angle", "drafting", "killed"],
   rated: [],
   killed: [],
 };
@@ -138,12 +140,9 @@ export const gateDecision = mutation({
     let to: string;
     if (decision === "kill") to = "killed";
     else if (gate === 1) {
-      to =
-        decision === "approve"
-          ? story.needsRecording
-            ? "recording"
-            : "production"
-          : "drafting";
+      // approving Gate 1 releases the story into the design studio — assets
+      // are made WITH Liz there, never fire-and-forget
+      to = decision === "approve" ? "design" : "drafting";
       if (decision === "approve") {
         // approving gate 1 also approves the planned generation manifest
         const runs = await ctx.db
@@ -318,7 +317,8 @@ export const deleteStory = mutation({
   handler: async (ctx, { storyId }) => {
     for (const table of [
       "claims", "scripts", "generationRuns", "assets", "recordings",
-      "gateEvents", "telegramNotices",
+      "gateEvents", "telegramNotices", "angleMessages", "designSlides",
+      "designCandidates", "genRequests",
     ] as const) {
       const rows = await ctx.db
         .query(table)

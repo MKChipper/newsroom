@@ -3,9 +3,11 @@ import { v } from "convex/values";
 
 export const storyStatus = v.union(
   v.literal("idea"),
+  v.literal("angle"),
   v.literal("drafting"),
   v.literal("legal_review"),
   v.literal("gate1"),
+  v.literal("design"),
   v.literal("recording"),
   v.literal("production"),
   v.literal("gate2"),
@@ -183,6 +185,57 @@ export default defineSchema({
   })
     .index("by_story", ["storyId"])
     .index("by_status", ["status"]),
+
+  angleMessages: defineTable({
+    storyId: v.id("stories"),
+    role: v.union(v.literal("liz"), v.literal("desk")),
+    text: v.string(),
+  }).index("by_story", ["storyId"]),
+
+  designSlides: defineTable({
+    storyId: v.id("stories"),
+    order: v.number(),
+    kind: v.string(),
+    voLine: v.string(),
+    visualNote: v.optional(v.string()),
+    prompt: v.string(),
+    selectedCandidateId: v.optional(v.id("designCandidates")),
+  }).index("by_story", ["storyId"]),
+
+  designCandidates: defineTable({
+    storyId: v.id("stories"),
+    slideId: v.optional(v.id("designSlides")),
+    kind: v.union(v.literal("slide"), v.literal("mockup")),
+    provider: v.string(),
+    model: v.string(),
+    filePath: v.string(),
+    prompt: v.string(),
+    costUsd: v.optional(v.number()),
+  })
+    .index("by_slide", ["slideId"])
+    .index("by_story", ["storyId"]),
+
+  genRequests: defineTable({
+    storyId: v.id("stories"),
+    slideId: v.optional(v.id("designSlides")),
+    kind: v.union(v.literal("slide"), v.literal("mockup")),
+    provider: v.string(),
+    model: v.string(),
+    count: v.number(),
+    aspect: v.string(),
+    quality: v.string(),
+    prompt: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("done"),
+      v.literal("failed")
+    ),
+    error: v.optional(v.string()),
+    costUsd: v.optional(v.number()),
+  })
+    .index("by_status", ["status"])
+    .index("by_story", ["storyId"]),
 
   telegramNotices: defineTable({
     storyId: v.id("stories"),

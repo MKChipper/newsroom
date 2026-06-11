@@ -9,6 +9,7 @@
  */
 
 import type * as brain from "../brain.js";
+import type * as design from "../design.js";
 import type * as pipeline from "../pipeline.js";
 import type * as production from "../production.js";
 import type * as telegram from "../telegram.js";
@@ -21,6 +22,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   brain: typeof brain;
+  design: typeof design;
   pipeline: typeof pipeline;
   production: typeof production;
   telegram: typeof telegram;

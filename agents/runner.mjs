@@ -18,6 +18,11 @@ import { telegramToken } from "./env.mjs";
 import {
   transcribe, alignSections, writeSrtFile, assemble, probeDuration,
 } from "./production.mjs";
+import * as gemini from "./providers/gemini.mjs";
+import * as fal from "./providers/fal.mjs";
+import * as higgsfield from "./providers/higgsfield.mjs";
+
+const PROVIDERS = { gemini, fal, higgsfield };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKER = `runner-${process.pid}`;
@@ -50,6 +55,28 @@ function extractJson(text) {
     }
   }
   throw new Error("no JSON object found in agent output");
+}
+
+// like runDesk but returns the raw conversational text (no JSON contract)
+async function runDeskText(deskName, prompt, { maxTurns = 2 } = {}) {
+  console.log(`  → ${deskName} desk thinking…`);
+  let finalText = "";
+  const session = query({
+    prompt,
+    options: {
+      systemPrompt: pack(deskName),
+      allowedTools: [],
+      permissionMode: "bypassPermissions",
+      maxTurns,
+    },
+  });
+  for await (const message of session) {
+    if (message.type === "result") {
+      if (message.subtype !== "success") throw new Error(`${deskName} desk failed: ${message.subtype}`);
+      finalText = message.result;
+    }
+  }
+  return finalText.trim();
 }
 
 async function runDesk(deskName, prompt, { tools = [], maxTurns = 6, mcpServers } = {}) {
@@ -373,6 +400,94 @@ async function legalReview(storyId) {
   }
 }
 
+// ---- Angle room -----------------------------------------------------------------
+
+async function angleReply(storyId) {
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  if (!detail || detail.story.status !== "angle") return;
+  const thread = await client.query("design:angleThread", { storyId });
+  const last = thread[thread.length - 1];
+  if (!last || last.role !== "liz") return;
+  console.log(`Angle room: ${detail.story.title}`);
+  const { docText } = await brainContext();
+  const reply = await runDeskText(
+    "angle-room",
+    [
+      docText,
+      "## The story under discussion",
+      JSON.stringify({ title: detail.story.title, job: detail.story.job, angle: detail.story.angle, summary: detail.story.summary }, null, 2),
+      "## Claims ledger (the receipts you argue from)",
+      JSON.stringify(detail.claims.map((c) => ({ text: c.text, classification: c.classification, citation: c.citation })), null, 2),
+      "## The discussion so far",
+      thread.map((m) => `${m.role === "liz" ? "LIZ" : "YOU"}: ${m.text}`).join("\n\n"),
+      "## Your reply",
+      "Respond to Liz's last message per the rules of the room.",
+    ].join("\n\n")
+  );
+  await client.mutation("design:addAngleMessage", { storyId, role: "desk", text: reply });
+  console.log("  replied");
+}
+
+// ---- Design studio: seeding + generation queue --------------------------------------
+
+const promptFromNote = (visualNote, voLine) =>
+  `editorial photograph: ${visualNote ?? voLine}. Moody dramatic light, photographic realism, no text or lettering anywhere in the image, no real brand names or logos.`;
+
+async function seedDesign(storyId) {
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  const script = detail.scripts.find((s) => s.status !== "superseded");
+  if (!script) return;
+  await client.mutation("design:seedSlides", {
+    storyId,
+    slides: script.sections.map((s, i) => ({
+      order: i,
+      kind: s.kind,
+      voLine: s.text,
+      visualNote: s.visualNote ?? undefined,
+      prompt: promptFromNote(s.visualNote, s.text),
+    })),
+  });
+  console.log(`Design studio seeded: ${detail.story.title} (${script.sections.length} rows)`);
+}
+
+async function handleGenRequest(requestId) {
+  const req = await client.mutation("design:claimGenRequest", { requestId });
+  if (!req) return;
+  const story = await client.query("pipeline:storyDetail", { storyId: req.storyId });
+  const slug = story?.story.slug ?? "unknown";
+  const provider = PROVIDERS[req.provider];
+  console.log(`Generate [${req.provider}/${req.model}] ×${req.count} for ${slug}`);
+  try {
+    if (!provider) throw new Error(`unknown provider ${req.provider}`);
+    const outDir = join(VAULT, slug, "design");
+    const baseName = `${req.kind}-${String(req._id).slice(-6)}`;
+    const { files, costUsd } = await provider.generate({
+      prompt: req.prompt,
+      model: req.model,
+      count: req.count,
+      aspect: req.aspect,
+      quality: req.quality,
+      outDir,
+      baseName,
+    });
+    await client.mutation("design:finishGenRequest", {
+      requestId,
+      status: "done",
+      costUsd,
+      candidates: files.map((f) => ({ filePath: f, prompt: req.prompt })),
+    });
+    console.log(`  ${files.length} candidate(s) on the board`);
+  } catch (err) {
+    await client.mutation("design:finishGenRequest", {
+      requestId,
+      status: "failed",
+      error: String(err.message).slice(0, 400),
+      candidates: [],
+    });
+    console.error(`  generation failed: ${err.message.slice(0, 200)}`);
+  }
+}
+
 // ---- Production floor -----------------------------------------------------------
 
 const VAULT = join(ROOT, "media-vault");
@@ -402,7 +517,21 @@ async function produceStory(storyId) {
   );
   const sectionImages = {};
   let agentNotes = "";
-  if (geminiRuns.length) {
+
+  // design-studio path: Liz already picked the winners — use them, generate nothing
+  const designAssets = detail.assets.filter((a) => a.kind === "image");
+  if (designAssets.length) {
+    for (const a of designAssets) {
+      try {
+        const m = JSON.parse(a.meta ?? "{}");
+        if (m.sectionIndex !== undefined && sectionImages[m.sectionIndex] === undefined) {
+          sectionImages[m.sectionIndex] = a.filePath;
+        }
+      } catch {}
+    }
+    agentNotes = `assembled from ${Object.keys(sectionImages).length} design-studio selections`;
+    console.log(`  ${agentNotes}`);
+  } else if (geminiRuns.length) {
     const result = await runDesk(
       "production",
       [
@@ -562,11 +691,35 @@ async function packageStory(storyId) {
 
 // ---- Main loop --------------------------------------------------------------------
 
-const IDLE_MS = 20_000;
+const IDLE_MS = 5_000; // design studio + angle room are interactive — poll snappily
 
 async function tick() {
   let work;
   try {
+    // 1. generation requests first — Liz is sitting in the design studio waiting
+    const genReq = await client.query("design:nextGenRequest", {});
+    if (genReq) {
+      await handleGenRequest(genReq._id);
+      return true;
+    }
+    // 2. angle-room replies — she's mid-conversation
+    const pendingAngles = await client.query("design:pendingAngleReplies", {});
+    if (pendingAngles.length) {
+      await angleReply(pendingAngles[0]);
+      return true;
+    }
+    // 3. design stories that have no storyboard rows yet
+    const board = await client.query("pipeline:board", {});
+    for (const s of board) {
+      if (s.status === "design") {
+        const d = await client.query("design:board", { storyId: s._id });
+        if (!d.slides.length) {
+          await seedDesign(s._id);
+          return true;
+        }
+      }
+    }
+    // 4. desk work
     work = await client.query("pipeline:nextWork", {});
   } catch (err) {
     // backend down or restarting — wait it out rather than crashing
