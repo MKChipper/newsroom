@@ -29,11 +29,17 @@ npm run inbox        # recordings-inbox watcher (--once to scan and exit)
 npm run memo         # Monday memo — run after adding numbers to Live stories
 ```
 
-Gates from your phone: when a story reaches Gate 1 or 2, @deinfluencedbot
-posts the script + generation manifest with Approve / Redo / Kill buttons
-(Redo asks you to reply with a note for the desks). Where messages land is
-set by `telegram_chat_id` / `telegram_thread_id` in Settings. The bot token
-is found automatically (env, `.env.local`, or the studio `.env`).
+Gates from your phone: when a story reaches Gate 1 or 2, the bot posts the
+script + generation manifest with Approve / Redo / Kill buttons (Redo asks
+you to reply with a note for the desks). Where messages land is set by
+`telegram_chat_id` / `telegram_thread_id` in Settings. The bot token is
+found automatically (env, `.env.local`, or the studio `.env`).
+
+⚠ If anything else in your stack polls @deinfluencedbot, the button
+callbacks race and can be lost (notices still arrive; deciding on the
+dashboard always works). Fix permanently: message @BotFather → /newbot →
+put `DE_NEWSROOM_BOT_TOKEN=<token>` in `.env.local`, add the new bot to
+your group, and restart. The newsroom prefers that token automatically.
 
 Recordings: the recording desk lists everything owed. Record, then drop
 files into `recordings-inbox/` named `[story-slug].[vo|intro].[wav/m4a/mp3]`

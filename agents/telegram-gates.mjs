@@ -217,7 +217,15 @@ for (;;) {
     if (DRY) break;
     await pollUpdates();
   } catch (err) {
-    console.error(err.message);
-    await new Promise((r) => setTimeout(r, 5000));
+    if (String(err.message).includes("Conflict")) {
+      console.error(
+        "another process is polling this bot — gate buttons may be lost. " +
+          "Create a dedicated bot via BotFather and set DE_NEWSROOM_BOT_TOKEN in .env.local. Backing off 60s."
+      );
+      await new Promise((r) => setTimeout(r, 60_000));
+    } else {
+      console.error(err.message);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
   }
 }

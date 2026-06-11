@@ -565,7 +565,15 @@ async function packageStory(storyId) {
 const IDLE_MS = 20_000;
 
 async function tick() {
-  const work = await client.query("pipeline:nextWork", {});
+  let work;
+  try {
+    work = await client.query("pipeline:nextWork", {});
+  } catch (err) {
+    // backend down or restarting — wait it out rather than crashing
+    console.error(`backend unreachable (${err.message.slice(0, 80)}) — retrying in 15s`);
+    await new Promise((r) => setTimeout(r, 15_000));
+    return false;
+  }
   if (!work) return false;
   try {
     if (work.type === "tip") await processTip(work.id);
