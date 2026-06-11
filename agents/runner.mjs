@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { scratchRuntime } from "./scratch-tts.mjs";
-import { telegramToken } from "./env.mjs";
+import { deliveryToken } from "./env.mjs";
 import {
   transcribe, alignSections, writeSrtFile, assemble, probeDuration,
 } from "./production.mjs";
@@ -660,7 +660,7 @@ async function packageStory(storyId) {
   await client.mutation("production:addAsset", { storyId, kind: "other", filePath: manifestPath });
 
   // hand-delivery to Telegram: master + caption, ready to download and post
-  const token = telegramToken();
+  const token = deliveryToken();
   let deliveryNote = "package written to media-vault";
   if (token && master) {
     try {

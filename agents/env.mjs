@@ -21,12 +21,19 @@ export function convexUrl() {
 }
 
 export function telegramToken() {
-  // a dedicated newsroom bot wins: if anything else long-polls the shared
-  // De-Influenced bot, its getUpdates calls race ours and gate buttons get
-  // lost. Create one with BotFather and set DE_NEWSROOM_BOT_TOKEN.
+  // gates: the dedicated newsroom bot wins — anything else long-polling the
+  // shared De-Influenced bot races our getUpdates and loses button taps.
   return (
     process.env.DE_NEWSROOM_BOT_TOKEN ??
     fromFile(join(ROOT, ".env.local"), "DE_NEWSROOM_BOT_TOKEN") ??
+    deliveryToken()
+  );
+}
+
+export function deliveryToken() {
+  // publish packages: always the original De-Influenced bot — it's the one
+  // that's a member of the SOCIAL POSTS group.
+  return (
     process.env.DE_TELEGRAM_BOT_TOKEN ??
     fromFile(join(ROOT, ".env.local"), "DE_TELEGRAM_BOT_TOKEN") ??
     fromFile(join(homedir(), "de-influenced-studio", ".env"), "DE_TELEGRAM_BOT_TOKEN")
