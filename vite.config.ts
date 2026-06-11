@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, createWriteStream, statSync, mkdirSync, existsSync } from "node:fs";
 import { join, normalize } from "node:path";
 
 const VAULT = join(process.cwd(), "media-vault");
@@ -21,6 +21,29 @@ function mediaVault() {
   return {
     name: "media-vault",
     configureServer(server: any) {
+      // POST /media-upload?slug=<story>&name=<filename> — body is the raw file.
+      // Liz attaches assets she made elsewhere (Higgsfield with reference
+      // images, screenshots…) straight into a story's design folder.
+      server.middlewares.use("/media-upload", (req: any, res: any) => {
+        if (req.method !== "POST") { res.statusCode = 405; return res.end(); }
+        const url = new URL(req.url, "http://x");
+        const slug = (url.searchParams.get("slug") ?? "").replace(/[^a-z0-9-]/gi, "");
+        const name = (url.searchParams.get("name") ?? "upload.png").replace(/[^a-zA-Z0-9._ -]/g, "");
+        if (!slug) { res.statusCode = 400; return res.end("missing slug"); }
+        const dir = join(VAULT, slug, "design", "uploads");
+        mkdirSync(dir, { recursive: true });
+        let file = join(dir, name);
+        if (existsSync(file)) {
+          file = join(dir, `${Date.now()}-${name}`);
+        }
+        const out = createWriteStream(file);
+        req.pipe(out);
+        out.on("finish", () => {
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ path: file }));
+        });
+        out.on("error", () => { res.statusCode = 500; res.end("write failed"); });
+      });
       server.middlewares.use("/media", (req: any, res: any, next: any) => {
         try {
           const rel = normalize(decodeURIComponent(req.url.split("?")[0]));

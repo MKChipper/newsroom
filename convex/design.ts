@@ -130,6 +130,28 @@ export const selectCandidate = mutation({
   },
 });
 
+// Liz-made assets (Higgsfield with references, screenshots, anything) attach
+// as candidates alongside generated ones — same picking flow.
+export const addCandidate = mutation({
+  args: {
+    storyId: v.id("stories"),
+    slideId: v.id("designSlides"),
+    filePath: v.string(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { storyId, slideId, filePath, note }) => {
+    return await ctx.db.insert("designCandidates", {
+      storyId,
+      slideId,
+      kind: "slide",
+      provider: "liz",
+      model: "attached",
+      filePath,
+      prompt: note ?? "attached by Liz",
+    });
+  },
+});
+
 // ---- Generation queue --------------------------------------------------------
 
 export const queueGen = mutation({

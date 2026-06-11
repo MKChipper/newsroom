@@ -376,10 +376,25 @@ const PROVIDER_MODELS: Record<string, string[]> = {
 
 function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
   const board = useQuery(api.design.board, { storyId });
+  const story = useQuery(api.pipeline.storyDetail, { storyId });
   const updatePrompt = useMutation(api.design.updatePrompt);
   const selectCandidate = useMutation(api.design.selectCandidate);
   const queueGen = useMutation(api.design.queueGen);
+  const addCandidate = useMutation(api.design.addCandidate);
   const sendToAssembly = useMutation(api.design.sendToAssembly);
+
+  const attachFiles = async (slideId: Id<"designSlides">, files: FileList | null) => {
+    const slug = (story as any)?.story?.slug;
+    if (!files || !slug) return;
+    for (const file of Array.from(files)) {
+      const res = await fetch(
+        `/media-upload?slug=${encodeURIComponent(slug)}&name=${encodeURIComponent(file.name)}`,
+        { method: "POST", body: file }
+      );
+      const { path } = await res.json();
+      await addCandidate({ storyId, slideId, filePath: path, note: `attached: ${file.name}` });
+    }
+  };
   const [gen, setGen] = useState({ provider: "higgsfield", model: "gpt_image_2", count: 2, aspect: "9:16", quality: "high" });
   const [prompts, setPrompts] = useState<Record<string, string>>({});
   const [err, setErr] = useState("");
@@ -497,6 +512,16 @@ function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
               <button className="act" disabled={busy(s._id)} onClick={() => fire(s, prompts[s._id] ?? s.prompt)}>
                 {busy(s._id) ? "Generating…" : `Generate ×${gen.count} (${gen.provider})`}
               </button>
+              <label className="act ghost" style={{ cursor: "pointer", display: "inline-block" }}>
+                ⤒ Attach your own
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style={{ display: "none" }}
+                  onChange={(e) => { attachFiles(s._id, e.target.files); e.target.value = ""; }}
+                />
+              </label>
               {s.selectedCandidateId && (
                 <button className="act ghost" onClick={() => selectCandidate({ slideId: s._id, candidateId: undefined })}>
                   Clear pick
