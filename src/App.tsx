@@ -89,11 +89,19 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
   const gate = useMutation(api.pipeline.gateDecision);
   const [note, setNote] = useState("");
   if (!detail) return <div className="detail" />;
-  const { story, claims, scripts, runs, recordings } = detail as any;
+  const { story, claims, scripts, runs, recordings, assets } = detail as any;
   const script = scripts.find((s: any) => s.status !== "superseded");
   const plannedRuns = runs.filter((r: any) => r.status !== "failed");
   const estTotal = plannedRuns.reduce((n: number, r: any) => n + r.estCostUsd, 0);
   const over = script && script.estRuntimeSec > script.targetRuntimeSec;
+
+  // /media/<relative-to-vault> — served by the vite media-vault middleware
+  const mediaUrl = (p: string) => "/media/" + p.split("/media-vault/").pop();
+  const images = (assets ?? []).filter((a: any) => a.kind === "image");
+  const master = (assets ?? []).find((a: any) => a.kind === "master");
+  const noteFor = (a: any) => {
+    try { return JSON.parse(a.meta ?? "{}"); } catch { return {}; }
+  };
 
   return (
     <div className="detail">
@@ -143,6 +151,45 @@ function Detail({ storyId, close }: { storyId: Id<"stories">; close: () => void 
               <div className="statusnote">{script.legalNotes}</div>
             </>
           )}
+        </>
+      )}
+
+      {master && (
+        <>
+          <h3>Final cut {noteFor(master).captionFree ? "· caption-free master" : ""}</h3>
+          <video
+            src={mediaUrl(master.filePath)}
+            controls
+            style={{ width: "100%", borderRadius: 8, background: "#000", maxHeight: 520 }}
+          />
+          <div className="note">
+            {noteFor(master).durationSec ? `${noteFor(master).durationSec}s · ` : ""}
+            no text burned in yet — captions are a separate layer (CapCut or the house-style step)
+          </div>
+        </>
+      )}
+
+      {images.length > 0 && (
+        <>
+          <h3>Generated visuals ({images.length}) · backgrounds, no text overlay</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+            {images
+              .slice()
+              .sort((a: any, b: any) => (noteFor(a).sectionIndex ?? 0) - (noteFor(b).sectionIndex ?? 0))
+              .map((a: any) => {
+                const m = noteFor(a);
+                return (
+                  <a key={a._id} href={mediaUrl(a.filePath)} target="_blank" rel="noreferrer" title={m.prompt ?? ""}>
+                    <img
+                      src={mediaUrl(a.filePath)}
+                      alt={m.prompt ?? "generated visual"}
+                      style={{ width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: 6, display: "block" }}
+                    />
+                  </a>
+                );
+              })}
+          </div>
+          <div className="note">click any image to open full size · hover for the prompt used</div>
         </>
       )}
 
