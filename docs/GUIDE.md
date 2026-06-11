@@ -40,10 +40,17 @@ card or none — and files **idea cards** with a score and a single business
 job: visibility, trust, or conversion.
 
 **3. You commission** *(Floor → Ideas column)*.
-Click a card. You'll see the angle, summary, score, and job. Two buttons:
-**Commission** (puts it to work) or **Spike it** (kills it). Nothing
-advances from Ideas without you — the desks never spend a penny or a
-minute on a story you haven't picked.
+Click a card: angle, summary, score, job. Three buttons: **To the angle
+room** (argue it into shape first — the default), **Straight to draft**
+(when the angle's already obvious), or **Spike it**. Nothing advances from
+Ideas without you.
+
+**3b. The angle room** *(chat in the story panel)*.
+A real discussion with a sparring-partner desk before any drafting. It
+pushes back with reasons, brings angles you didn't say, and argues from
+the claims ledger — it is instructed that agreeing with everything is
+failure. When you've converged, type the agreed spine into the lock box
+and **Lock angle** — that's what the writers' room drafts from.
 
 **4. Writers' room + legal desk** *(automatic — "Desks at work" column)*.
 The writers' room drafts the script against a hard time budget (your
@@ -56,12 +63,23 @@ on a receipt — fixing small things itself, bouncing structural problems
 back. After passing, a local TTS voice reads the script aloud and the real
 duration is checked against target ("scratch read 29s / target 32s").
 
-**5. Gate 1 — you approve copy + spend** *(Telegram buttons or the card)*.
-The story arrives with the full script, the legal desk's risk summary, and
-the generation manifest priced line by line. The approve button literally
-says what it spends: "Approve · spend ~$1.52". **Redo** asks for a note —
-whatever you type goes verbatim to the writers' room. **Kill** spikes it.
-This is the only moment money gets committed.
+**5. Gate 1 — you approve the copy** *(Telegram buttons or the card)*.
+The story arrives with the full script and the legal desk's risk summary.
+**Redo** asks for a note — whatever you type goes verbatim to the writers'
+room. **Kill** spikes it. Approval releases the story into the design
+studio — nothing visual has been generated yet.
+
+**5b. The design studio** *(the story panel becomes a workbench)*.
+The storyboard: one row per script beat — the line you'll speak (or the
+slide text) plus an editable prompt drafted from its visual note. The
+spoken word is the spine; every visual serves the sentence being said.
+Per row you control provider (**Higgsfield / Gemini / Fal**), model,
+count, aspect, and quality — hit Generate as many rounds as you like,
+rewrite prompts by hand between rounds, and click a thumbnail to pick the
+winner (green ring). The **storyboard mockup** button makes one cheap
+contact-sheet image of the whole post for a vibe check before you spend
+on real candidates. **Send to assembly** unlocks only when every row has
+a pick — assembly uses exactly your selections, nothing else.
 
 **6. Recording — only if the story needs your voice** *(Recording tab)*.
 The tab lists everything owed across all stories, batched, with delivery
