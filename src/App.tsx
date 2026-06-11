@@ -507,17 +507,32 @@ function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
             {cands.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 8 }}>
                 {cands.map((c: any) => (
-                  <img
-                    key={c._id}
-                    src={mediaUrl(c.filePath)}
-                    title={`${c.provider}/${c.model}`}
-                    onClick={() => selectCandidate({ slideId: s._id, candidateId: c._id })}
-                    style={{
-                      width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: 6,
-                      cursor: "pointer", display: "block",
-                      outline: s.selectedCandidateId === c._id ? "3px solid var(--ok)" : "1px solid var(--line)",
-                    }}
-                  />
+                  <div key={c._id} style={{ position: "relative" }}>
+                    <img
+                      src={mediaUrl(c.filePath)}
+                      title={`${c.provider}/${c.model} — click to pick, ⤢ to view full size`}
+                      onClick={() => selectCandidate({ slideId: s._id, candidateId: c._id })}
+                      style={{
+                        width: "100%", aspectRatio: "9/16", objectFit: "cover", borderRadius: 6,
+                        cursor: "pointer", display: "block",
+                        outline: s.selectedCandidateId === c._id ? "3px solid var(--ok)" : "1px solid var(--line)",
+                      }}
+                    />
+                    <a
+                      href={mediaUrl(c.filePath)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      title="open full size in a new tab"
+                      style={{
+                        position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.55)",
+                        color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: 12,
+                        textDecoration: "none", lineHeight: "18px",
+                      }}
+                    >
+                      ⤢
+                    </a>
+                  </div>
                 ))}
               </div>
             )}
