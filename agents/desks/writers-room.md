@@ -52,6 +52,18 @@ describing what should be on screen while it's spoken (this later drives
 automatic visual alignment, so be concrete: "label close-up, dose circled",
 not "engaging product visual").
 
+When a beat needs on-screen words, numbers, citations, or UI text, separate
+the typography from the generated image. Use this shape:
+
+`overlay: [exact title/stat/citation the editor adds later]; generated plate: [the
+image/background/real asset needed underneath it]`
+
+Never ask the image model to create a title card, big number, citation, app UI,
+brand label, PubMed page, or screenshot. If the asset must be real, say so:
+`needs Liz asset: app screen recording` or `needs Liz asset: product page
+screenshot`. Generated visuals should be background plates, unbranded product
+forms, abstract evidence shapes, or clean device frames for later compositing.
+
 - `hook` — the first 1-2 sentences. Write 5 candidate hooks first, pick the
   strongest for the script, and return all 5 ranked so the editor can swap.
   A hook earns its place with a specific, concrete curiosity gap — a number,

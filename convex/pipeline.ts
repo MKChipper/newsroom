@@ -33,6 +33,74 @@ const TRANSITIONS: Record<string, string[]> = {
   killed: [],
 };
 
+const reviewProofFields = [
+  "firstFrame",
+  "hookPromise",
+  "messageSpine",
+  "appResolver",
+  "cta",
+  "pixelEvidence",
+  "finalViewerAction",
+];
+
+const reviewGateFields = [
+  "formatLock",
+  "hook",
+  "messageSpine",
+  "appResolver",
+  "assetTruth",
+  "voiceCompliance",
+  "pixelMotion",
+  "platformNative",
+];
+
+const reviewReady = (review: any) =>
+  review?.decision === "ready" &&
+  reviewGateFields.every((field) => review.gates?.[field] === "green") &&
+  reviewProofFields.every((field) => (review.proof?.[field] ?? "").trim().length >= 12) &&
+  (review.artifactPath ?? "").trim().length >= 6 &&
+  (review.contactSheetPath ?? "").trim().length >= 6 &&
+  !(review.nextAssetNeeded ?? "").trim();
+
+const assertGate2ReviewReady = async (ctx: any, storyId: any) => {
+  const routes = await ctx.db
+    .query("formatRoutes")
+    .withIndex("by_story", (q: any) => q.eq("storyId", storyId))
+    .collect();
+  const selectedRoute = routes.find((route: any) => route.selected);
+  const tier = Number(selectedRoute?.tier ?? 1);
+
+  const assetRequests = await ctx.db
+    .query("assetRequests")
+    .withIndex("by_story", (q: any) => q.eq("storyId", storyId))
+    .collect();
+  const outstandingRequiredAssets = assetRequests.filter((request: any) => {
+    const appliesToActiveScope = !request.routeId || (selectedRoute && request.routeId === selectedRoute._id);
+    return appliesToActiveScope &&
+      request.required &&
+      (request.status === "needed" || request.status === "generating");
+  });
+  if (outstandingRequiredAssets.length > 0) {
+    const labels = outstandingRequiredAssets.map((request: any) => request.label).join("; ");
+    throw new Error(`Gate 2 approval requires required assets to be supplied, selected, or waived: ${labels}`);
+  }
+
+  if (!selectedRoute) return;
+  if (tier < 2) return;
+
+  const reviews = await ctx.db
+    .query("postReviews")
+    .withIndex("by_story", (q: any) => q.eq("storyId", storyId))
+    .collect();
+  const latestRouteReview = reviews
+    .filter((review: any) => review.routeId === selectedRoute._id)
+    .sort((a: any, b: any) => b.updatedAt - a.updatedAt)[0];
+
+  if (!reviewReady(latestRouteReview)) {
+    throw new Error("Gate 2 approval requires a ready review loop pass with every gate green, a rendered artifact path, contact sheet or stills evidence, and proof for the hook, message, app resolver, CTA, pixel pass, and final viewer action.");
+  }
+};
+
 export const board = query({
   args: {},
   handler: async (ctx) => {
@@ -46,20 +114,35 @@ export const storyDetail = query({
   handler: async (ctx, { storyId }) => {
     const story = await ctx.db.get(storyId);
     if (!story) return null;
-    const byStory = (table: "claims" | "scripts" | "generationRuns" | "assets" | "recordings" | "gateEvents") =>
+    const byStory = (table:
+      | "claims"
+      | "scripts"
+      | "generationRuns"
+      | "assets"
+      | "recordings"
+      | "gateEvents"
+      | "creativeBriefs"
+      | "formatRoutes"
+      | "assetRequests"
+      | "postDrafts"
+    ) =>
       ctx.db
         .query(table)
         .withIndex("by_story", (q) => q.eq("storyId", storyId))
         .collect();
-    const [claims, scripts, runs, assets, recordings, gates] = await Promise.all([
+    const [claims, scripts, runs, assets, recordings, gates, briefs, routes, assetRequests, postDrafts] = await Promise.all([
       byStory("claims"),
       byStory("scripts"),
       byStory("generationRuns"),
       byStory("assets"),
       byStory("recordings"),
       byStory("gateEvents"),
+      byStory("creativeBriefs"),
+      byStory("formatRoutes"),
+      byStory("assetRequests"),
+      byStory("postDrafts"),
     ]);
-    return { story, claims, scripts, runs, assets, recordings, gates };
+    return { story, claims, scripts, runs, assets, recordings, gates, briefs, routes, assetRequests, postDrafts };
   },
 });
 
@@ -115,6 +198,9 @@ export const transition = mutation({
     if (!allowed.includes(to)) {
       throw new Error(`illegal transition ${story.status} -> ${to}`);
     }
+    if (story.status === "gate2" && to === "packaging") {
+      await assertGate2ReviewReady(ctx, storyId);
+    }
     await ctx.db.patch(storyId, {
       status: to,
       statusNote: note,
@@ -122,6 +208,13 @@ export const transition = mutation({
       lockedAt: undefined,
       updatedAt: Date.now(),
     });
+    if (to === "posted") {
+      const drafts = await ctx.db
+        .query("postDrafts")
+        .withIndex("by_story", (q) => q.eq("storyId", storyId))
+        .collect();
+      for (const draft of drafts) await ctx.db.patch(draft._id, { status: "posted", updatedAt: Date.now() });
+    }
   },
 });
 
@@ -157,6 +250,9 @@ export const gateDecision = mutation({
       }
     } else {
       to = decision === "approve" ? "packaging" : "production";
+      if (decision === "approve") {
+        await assertGate2ReviewReady(ctx, storyId);
+      }
     }
     await ctx.db.patch(storyId, {
       status: to as any,
@@ -318,7 +414,8 @@ export const deleteStory = mutation({
     for (const table of [
       "claims", "scripts", "generationRuns", "assets", "recordings",
       "gateEvents", "telegramNotices", "angleMessages", "designSlides",
-      "designCandidates", "genRequests",
+      "designCandidates", "genRequests", "creativeBriefs", "formatRoutes",
+      "assetRequests", "postDrafts", "postReviews",
     ] as const) {
       const rows = await ctx.db
         .query(table)

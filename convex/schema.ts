@@ -32,6 +32,34 @@ export const claimClass = v.union(
   v.literal("unsafe")
 );
 
+export const reviewGateStatus = v.union(
+  v.literal("green"),
+  v.literal("amber"),
+  v.literal("red"),
+  v.literal("pending")
+);
+
+export const reviewProofPack = v.object({
+  firstFrame: v.string(),
+  hookPromise: v.string(),
+  messageSpine: v.string(),
+  appResolver: v.string(),
+  cta: v.string(),
+  pixelEvidence: v.string(),
+  finalViewerAction: v.string(),
+});
+
+export const reviewGateRevisions = v.object({
+  formatLock: v.string(),
+  hook: v.string(),
+  messageSpine: v.string(),
+  appResolver: v.string(),
+  assetTruth: v.string(),
+  voiceCompliance: v.string(),
+  pixelMotion: v.string(),
+  platformNative: v.string(),
+});
+
 export default defineSchema({
   stories: defineTable({
     title: v.string(),
@@ -190,6 +218,137 @@ export default defineSchema({
     storyId: v.id("stories"),
     role: v.union(v.literal("liz"), v.literal("desk")),
     text: v.string(),
+  }).index("by_story", ["storyId"]),
+
+  creativeBriefs: defineTable({
+    storyId: v.id("stories"),
+    status: v.union(
+      v.literal("drafted"),
+      v.literal("selected"),
+      v.literal("superseded")
+    ),
+    researchSummary: v.string(),
+    audienceLanguage: v.array(v.string()),
+    editorFocus: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_story", ["storyId"]),
+
+  formatRoutes: defineTable({
+    storyId: v.id("stories"),
+    briefId: v.optional(v.id("creativeBriefs")),
+    order: v.number(),
+    title: v.string(),
+    angle: v.string(),
+    platform: v.string(),
+    format: v.string(),
+    tier: v.optional(v.number()),
+    postType: v.string(),
+    structure: v.string(),
+    visualTreatment: v.string(),
+    assetStrategy: v.union(
+      v.literal("agent_can_create"),
+      v.literal("needs_liz_assets"),
+      v.literal("mixed"),
+      v.literal("informational_only")
+    ),
+    lizAssetNeeds: v.array(v.string()),
+    agentAssetPlan: v.array(v.string()),
+    rationale: v.string(),
+    risk: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    effort: v.number(),
+    selected: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_story", ["storyId"]),
+
+  assetRequests: defineTable({
+    storyId: v.id("stories"),
+    routeId: v.optional(v.id("formatRoutes")),
+    slideId: v.optional(v.id("designSlides")),
+    owner: v.union(v.literal("liz"), v.literal("agent")),
+    kind: v.union(
+      v.literal("screenshot"),
+      v.literal("receipt"),
+      v.literal("product"),
+      v.literal("reference"),
+      v.literal("voice"),
+      v.literal("face"),
+      v.literal("generated_image"),
+      v.literal("generated_video"),
+      v.literal("other")
+    ),
+    label: v.string(),
+    instructions: v.string(),
+    required: v.boolean(),
+    status: v.union(
+      v.literal("needed"),
+      v.literal("supplied"),
+      v.literal("generating"),
+      v.literal("selected"),
+      v.literal("waived")
+    ),
+    filePath: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_story", ["storyId"])
+    .index("by_owner_status", ["owner", "status"]),
+
+  postDrafts: defineTable({
+    storyId: v.id("stories"),
+    platform: v.string(),
+    format: v.string(),
+    caption: v.string(),
+    hashtags: v.array(v.string()),
+    coverText: v.optional(v.string()),
+    postingNotes: v.optional(v.string()),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("awaiting_approval"),
+      v.literal("ready"),
+      v.literal("posted")
+    ),
+    scheduleIntent: v.optional(
+      v.union(
+        v.literal("next_available"),
+        v.literal("prioritize"),
+        v.literal("date_time"),
+        v.literal("manual_now")
+      )
+    ),
+    updatedAt: v.number(),
+  }).index("by_story", ["storyId"]),
+
+  postReviews: defineTable({
+    storyId: v.id("stories"),
+    routeId: v.optional(v.id("formatRoutes")),
+    passNo: v.number(),
+    gates: v.object({
+      formatLock: reviewGateStatus,
+      hook: reviewGateStatus,
+      messageSpine: reviewGateStatus,
+      appResolver: reviewGateStatus,
+      assetTruth: reviewGateStatus,
+      voiceCompliance: reviewGateStatus,
+      pixelMotion: reviewGateStatus,
+      platformNative: reviewGateStatus,
+    }),
+    decision: v.union(
+      v.literal("ready"),
+      v.literal("revise"),
+      v.literal("blocked"),
+      v.literal("pending")
+    ),
+    proof: v.optional(reviewProofPack),
+    artifactPath: v.optional(v.string()),
+    contactSheetPath: v.optional(v.string()),
+    gateRevisions: v.optional(reviewGateRevisions),
+    requiredRevisions: v.string(),
+    nextAssetNeeded: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
   }).index("by_story", ["storyId"]),
 
   designSlides: defineTable({

@@ -214,7 +214,20 @@ export const requestRecording = mutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.storyId, { needsRecording: true, updatedAt: Date.now() });
-    return await ctx.db.insert("recordings", { ...args, status: "requested" });
+    const recordingId = await ctx.db.insert("recordings", { ...args, status: "requested" });
+    const now = Date.now();
+    await ctx.db.insert("assetRequests", {
+      storyId: args.storyId,
+      owner: "liz",
+      kind: "voice",
+      label: args.kind === "vo" ? "Voiceover recording" : "Intro recording",
+      instructions: args.brief,
+      required: true,
+      status: "needed",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return recordingId;
   },
 });
 
@@ -229,6 +242,15 @@ export const recordingReceived = mutation({
     // if every requested recording for this story is now in, resume the pipeline
     const rec = await ctx.db.get(recordingId);
     if (!rec) return;
+    const requests = await ctx.db
+      .query("assetRequests")
+      .withIndex("by_story", (q) => q.eq("storyId", rec.storyId))
+      .collect();
+    for (const req of requests) {
+      if (req.kind === "voice" && req.status === "needed") {
+        await ctx.db.patch(req._id, { status: "supplied", filePath, updatedAt: Date.now() });
+      }
+    }
     const all = await ctx.db
       .query("recordings")
       .withIndex("by_story", (q) => q.eq("storyId", rec.storyId))

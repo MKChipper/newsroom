@@ -28,6 +28,39 @@ Tag each story with the ONE job it is being commissioned to do:
 This tag decides how the story is judged later. Be honest. A story trying to
 do all three jobs does none.
 
+## App-led pain resolver route
+
+When the source is audience pain rather than a named product receipt, actively
+check whether it fits the `app resolver reel` route.
+
+Use `postType: "app resolver reel"` when all of these are true:
+
+- The story starts from a consumer pain point or buyer moment.
+- The buyer is stuck because the market gives options, promises, claims,
+  labels, anecdotes, search results, or influencer content without a clear
+  evidence check.
+- De-Influenced can reduce that burden with one concrete app behaviour:
+  paste product, paste URL, paste claim, check dose, check evidence fit,
+  check transparency, or compare claim vs proof.
+- The app should appear before the CTA and visibly do the job.
+
+Default app resolver structure:
+
+> pain point -> proof of the confusing environment -> useful check -> app
+> doing the check -> before-you-buy CTA
+
+Good examples:
+
+- Menopause product search wall: buyer is exhausted from guessing; Google gives
+  a wall of promises; De-Influenced checks product + dose + claim.
+- "Has anyone tried this?": buyer is relying on anecdotes; De-Influenced checks
+  whether the product claim is supported before they spend money.
+- Testing/COA confusion: buyer sees "third-party tested"; De-Influenced checks
+  what was tested, by whom, and whether the result is visible.
+
+Do not use this route when the post would only show the logo at the end. The
+app must resolve the pain point on screen.
+
 ## Scoring (1-5 each)
 
 - `hook` — is there a genuine curiosity gap a scroller can feel in one line?
@@ -35,6 +68,33 @@ do all three jobs does none.
 - `effort` — production weight. 1 = text on screen, 5 = multi-lane shoot.
 - `risk` — legal/reputation delicacy. Named brands with thin sourcing = high.
 - `total` — your overall commissioning recommendation, not a sum.
+
+## Format routes
+
+For every story you file, include a creative brief and 2-4 executable format
+routes. This desk is not just choosing an idea; it is showing Liz what kind of
+post this can become.
+
+Each route must answer:
+- Which production tier is this? Use `tier`: 1 = fast TikTok lane check, 2 =
+  Instagram saveable explainer / medium HyperFrames, 3 = satirical receipt
+  audit, 4 = hero evidence edit.
+- What is the post type? For example: receipt-led reel, informational carousel,
+  single-frame comparison, product-context reel, myth-vs-receipt static.
+- Does Liz need to provide assets? Be explicit: screenshot, receipt crop,
+  product photo, reference image, voice, face, none.
+- Can the image/video agent create the assets from scratch? Say what it should
+  make.
+- What visual treatment should production use? This is art direction, not copy.
+- Why is this route better than the alternatives?
+
+Offer variety. Do not return four versions of the same reel. At least one route
+should be low-friction where the story allows it, and at least one route should
+lean into stronger visual craft where the evidence justifies the work.
+
+For conversion stories, include an `app resolver reel` route unless it would be
+misleading or the app has no concrete job in the story. Usually make it Tier 2:
+polished enough to show the app clearly, not a five-hour hero edit.
 
 ## Output
 
@@ -52,7 +112,29 @@ Return ONLY a JSON object:
       "platform": "tiktok" | "instagram" | null,
       "format": "tiktok_video" | "ig_reel" | "ig_carousel" | "meta_ad" | null,
       "score": { "hook": 1, "evidence": 1, "effort": 1, "risk": 1, "total": 1 },
-      "claimTexts": ["claims from the tip this story rests on, verbatim"]
+      "claimTexts": ["claims from the tip this story rests on, verbatim"],
+      "creativeBrief": {
+        "researchSummary": "what the receipts make possible and why this should be made now",
+        "audienceLanguage": ["verbatim or near-verbatim phrases worth preserving"],
+        "routes": [
+          {
+            "title": "short working label",
+            "angle": "one-line editorial spine for this route",
+            "platform": "tiktok" | "instagram" | "linkedin" | "meta",
+            "format": "tiktok_video" | "ig_reel" | "ig_carousel" | "static" | "meta_ad",
+            "tier": 1 | 2 | 3 | 4,
+            "postType": "app resolver reel | receipt-led reel | informational carousel | single-frame comparison | ...",
+            "structure": "hook + beat plan, slide plan, or frame plan",
+            "visualTreatment": "art direction for production, no copy",
+            "assetStrategy": "agent_can_create" | "needs_liz_assets" | "mixed" | "informational_only",
+            "lizAssetNeeds": ["specific assets Liz must provide, or []"],
+            "agentAssetPlan": ["specific visuals the agent should generate, or []"],
+            "rationale": "why this route fits the receipt and audience",
+            "risk": "low" | "medium" | "high",
+            "effort": 1
+          }
+        ]
+      }
     }
   ]
 }

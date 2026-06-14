@@ -1,0 +1,11 @@
+.env
+.env.*
+.firecrawl/
+.git/
+.telegram-offset
+.vercel/
+Newsroom.app/
+media-vault/
+node_modules/
+recordings-inbox/
+*.log

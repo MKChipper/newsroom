@@ -61,3 +61,8 @@ in `rewrittenSections` and pass — don't bounce a script for things you can
 repair without changing its spine. Bounce when facts are missing or the
 structure rests on an unsupported claim. Keep the jokes alive: your job is to
 make the humour safe, not to remove it.
+
+If you rewrite a section, preserve or improve its `visualNote`. Do not ask the
+image model to create title text, stats, citations, product labels, app UI, or
+screenshots. Use the writer's split when typography or real assets are needed:
+`overlay: [editor-added copy]; generated plate: [background or visual support]`.

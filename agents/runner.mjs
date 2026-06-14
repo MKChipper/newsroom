@@ -134,6 +134,63 @@ const sanitizeClaims = (claims) =>
     riskNote: c.riskNote ?? undefined,
   })).filter((c) => c.text);
 
+const ASSET_STRATEGIES = new Set(["agent_can_create", "needs_liz_assets", "mixed", "informational_only"]);
+const RISKS = new Set(["low", "medium", "high"]);
+
+function cleanRoute(story, route = {}, order = 0) {
+  const platform = route.platform ?? story.platform ?? "tiktok";
+  const format = route.format ?? story.format ?? (platform === "instagram" ? "ig_reel" : "tiktok_video");
+  const postType = route.postType ?? (format.includes("carousel") ? "informational carousel" : "receipt-led reel");
+  const tier = Math.max(1, Math.min(4, Number(route.tier ?? route.productionTier ?? route.effort ?? order + 1) || 1));
+  return {
+    title: String(route.title ?? `${postType} route`),
+    angle: String(route.angle ?? story.angle ?? story.summary ?? story.title),
+    platform: String(platform),
+    format: String(format),
+    tier,
+    postType: String(postType),
+    structure: String(route.structure ?? "hook, receipt beat, payoff"),
+    visualTreatment: String(route.visualTreatment ?? "clean editorial visuals with receipt-led composition and no generated text"),
+    assetStrategy: ASSET_STRATEGIES.has(route.assetStrategy) ? route.assetStrategy : "agent_can_create",
+    lizAssetNeeds: Array.isArray(route.lizAssetNeeds) ? route.lizAssetNeeds.map(String) : [],
+    agentAssetPlan: Array.isArray(route.agentAssetPlan)
+      ? route.agentAssetPlan.map(String)
+      : ["generate visual backgrounds for each script beat"],
+    rationale: String(route.rationale ?? "Default route inferred from the story desk recommendation."),
+    risk: RISKS.has(route.risk) ? route.risk : "medium",
+    effort: Math.max(1, Math.min(5, Number(route.effort ?? story.score?.effort ?? order + 1) || 1)),
+  };
+}
+
+function creativeBriefForStory(story) {
+  const brief = story.creativeBrief ?? {};
+  const routes = Array.isArray(brief.routes) && brief.routes.length
+    ? brief.routes
+    : [
+        {
+          title: story.format ? `${story.format} default` : "Receipt-led default",
+          angle: story.angle,
+          platform: story.platform ?? "tiktok",
+          format: story.format ?? "tiktok_video",
+          tier: story.score?.effort >= 4 ? 3 : story.score?.effort >= 3 ? 2 : 1,
+          postType: story.format === "ig_carousel" ? "informational carousel" : "receipt-led reel",
+          structure: "hook, receipt beat, payoff",
+          visualTreatment: "editorial proof-first visuals that make the receipt legible without putting text inside generated images",
+          assetStrategy: "agent_can_create",
+          lizAssetNeeds: [],
+          agentAssetPlan: ["generate one vertical background or receipt visual per script beat"],
+          rationale: "Fallback route from the story desk's original recommendation.",
+          risk: story.score?.risk >= 4 ? "high" : story.score?.risk >= 3 ? "medium" : "low",
+          effort: story.score?.effort ?? 2,
+        },
+      ];
+  return {
+    researchSummary: String(brief.researchSummary ?? story.summary ?? story.angle ?? story.title),
+    audienceLanguage: Array.isArray(brief.audienceLanguage) ? brief.audienceLanguage.map(String) : [],
+    routes: routes.map((r, i) => cleanRoute(story, r, i)),
+  };
+}
+
 // ---- Tip line + story desk ---------------------------------------------------
 
 async function processTip(tipId) {
@@ -214,6 +271,13 @@ async function processTip(tipId) {
       storyId,
       claims: storyClaims.length ? storyClaims : tipClaims,
     });
+    const brief = creativeBriefForStory(s);
+    await client.mutation("design:saveCreativeBrief", {
+      storyId,
+      researchSummary: brief.researchSummary,
+      audienceLanguage: brief.audienceLanguage,
+      routes: brief.routes,
+    });
     console.log(`  filed story card: ${s.title} [${s.job}]`);
   }
 }
@@ -225,6 +289,8 @@ async function draftStory(storyId) {
   if (!story) return;
   console.log(`Drafting: ${story.title}`);
   const detail = await client.query("pipeline:storyDetail", { storyId });
+  const workspace = await client.query("design:creativeWorkspace", { storyId });
+  const selectedRoute = workspace?.routes?.find((r) => r.selected);
   const { docText, settings } = await brainContext();
 
   const wpm = Number(settings.speech_wpm ?? 155);
@@ -239,6 +305,22 @@ async function draftStory(storyId) {
       null,
       2
     ),
+    selectedRoute
+      ? [
+          "## Selected creative route",
+          JSON.stringify({
+            title: selectedRoute.title,
+            postType: selectedRoute.postType,
+            structure: selectedRoute.structure,
+            visualTreatment: selectedRoute.visualTreatment,
+            assetStrategy: selectedRoute.assetStrategy,
+            lizAssetNeeds: selectedRoute.lizAssetNeeds,
+            agentAssetPlan: selectedRoute.agentAssetPlan,
+            rationale: selectedRoute.rationale,
+          }, null, 2),
+          "Draft to this route. Keep the content legally grounded, but let the route decide the post craft.",
+        ].join("\n")
+      : "",
     "## Claims ledger",
     JSON.stringify(detail.claims, null, 2),
     "## Timing",
@@ -430,8 +512,65 @@ async function angleReply(storyId) {
 
 // ---- Design studio: seeding + generation queue --------------------------------------
 
-const promptFromNote = (visualNote, voLine) =>
-  `editorial photograph: ${visualNote ?? voLine}. Moody dramatic light, photographic realism, no text or lettering anywhere in the image, no real brand names or logos.`;
+const tidyPromptText = (value = "") => String(value).replace(/\s+/g, " ").trim();
+
+const promptNeedsRealAsset = (text) =>
+  /\b(screenshot|screen recording|app screen|app recording|real label|product page|receipt|pubmed|doi|pmid|coa|certificate|search result|url)\b/i.test(text);
+
+const promptHasOverlayDirection = (text) =>
+  /\b(title card|headline|sub-line|subtitle|caption|citation|footnote|pmid|bullet|tag|number|overlay|text|lettering|quote marks)\b/i.test(text) ||
+  /['"][^'"]{2,}['"]/.test(text);
+
+const promptHasChartDirection = (text) =>
+  /\b(forest plot|bar|chart|axis|confidence interval|effect size|p\s*=|meta-analysis|trial|rct)\b/i.test(text);
+
+const cleanVisualBrief = (text) => {
+  const clean = tidyPromptText(text)
+    .replace(/\bSlide\s*\d+\s*[:,;-]?\s*/gi, "")
+    .replace(/\btitle card\b/gi, "background plate for editor-added title")
+    .replace(/\bhuge\s+['"][^'"]+['"][^,.;]*/gi, "large empty headline area")
+    .replace(/\b(sub-line|subtitle|caption)\s+['"][^'"]+['"][^,.;]*/gi, "secondary empty copy band")
+    .replace(/\bcitation[^,.;]*/gi, "small clear footer strip for editor-added citation")
+    .replace(/\bPMID\s*\d+\b/gi, "editor-added citation")
+    .replace(/\bp\s*=\s*[-\d.]+\b/gi, "editor-added statistic")
+    .replace(/['"][^'"]{2,}['"]/g, "editor-added overlay text")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean || "evidence-led visual background for the spoken beat";
+};
+
+const visualModeForPrompt = (text) => {
+  const t = text.toLowerCase();
+  if (/\b(app|phone|screen recording|screenshot|search|url|product page)\b/.test(t)) return "app or browser proof plate";
+  if (/\b(label|bottle|capsule|tablet|powder|jar|product)\b/.test(t)) return "unbranded supplement product research plate";
+  if (promptHasChartDirection(text)) return "abstract evidence chart plate";
+  if (promptHasOverlayDirection(text)) return "typographic overlay background plate";
+  return "editorial evidence background plate";
+};
+
+const promptFromNote = (visualNote, voLine) => {
+  const source = tidyPromptText(visualNote ?? voLine);
+  const cleaned = cleanVisualBrief(source);
+  const mode = visualModeForPrompt(source);
+  const needsReal = promptNeedsRealAsset(source);
+  const chartLine = promptHasChartDirection(source)
+    ? "If a chart is implied, use abstract unlabeled evidence shapes only: a clean line, dot, interval bar, or paper stack with no axes, digits, labels, or fake data."
+    : "";
+  const realAssetLine = needsReal
+    ? "If the beat needs a real screenshot, app screen, PubMed record, label, product page, or receipt, do not invent it; generate only a polished background plate or device frame where the real asset can be composited later."
+    : "Use generic unbranded objects only; never invent real brands, product labels, medical claims, citations, or UI screens.";
+
+  return [
+    "Vertical 9:16 De-Influenced social visual, professional editorial background plate, high-impact first-frame composition.",
+    `Creative job: ${mode}; support the spoken beat without generating any words inside the image.`,
+    `Visual brief: ${cleaned}.`,
+    "Composition: one clear focal idea, strong foreground/background separation, generous clean negative space for editor-added headline, caption, numbers, and citation; keep the safe areas uncluttered for mobile cropping.",
+    "Look and lighting: premium documentary product-research photography, realistic desk or screen environment, soft directional light, crisp detail, restrained contrast, modern neutral palette with one sharp accent colour, not stock-photo glossy.",
+    chartLine,
+    realAssetLine,
+    "Strict negatives: no readable text, no letters, no numbers, no fake screenshots, no logos, no real brand names, no watermarks, no cartoon style, no influencer glamour, no fearmongering medical imagery.",
+  ].filter(Boolean).join(" ");
+};
 
 async function seedDesign(storyId) {
   const detail = await client.query("pipeline:storyDetail", { storyId });
@@ -658,6 +797,17 @@ async function packageStory(storyId) {
   const { writeFileSync } = await import("node:fs");
   writeFileSync(manifestPath, manifest);
   await client.mutation("production:addAsset", { storyId, kind: "other", filePath: manifestPath });
+  await client.mutation("design:savePostDraft", {
+    storyId,
+    platform: story.platform ?? "manual",
+    format: story.format ?? "post",
+    caption: String(result.caption ?? ""),
+    hashtags: Array.isArray(result.hashtags) ? result.hashtags.map(String) : [],
+    coverText: result.coverText ? String(result.coverText) : undefined,
+    postingNotes: result.postingNotes ? String(result.postingNotes) : undefined,
+    status: "ready",
+    scheduleIntent: "manual_now",
+  });
 
   // hand-delivery to Telegram: master + caption, ready to download and post
   const token = deliveryToken();
