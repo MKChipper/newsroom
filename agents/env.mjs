@@ -13,9 +13,37 @@ function fromFile(file, key) {
   return m ? m[1].trim() : undefined;
 }
 
+export function localEnvValue(key) {
+  return process.env[key] ?? fromFile(join(ROOT, ".env.local"), key);
+}
+
+export function claudeSdkEnv() {
+  const env = { ...process.env };
+  for (const key of [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_MODEL",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+    "ANTHROPIC_AWS_WORKSPACE_ID",
+  ]) {
+    if (!env[key]) {
+      const value = fromFile(join(ROOT, ".env.local"), key);
+      if (value) env[key] = value;
+    }
+  }
+  return env;
+}
+
+export function claudeModel() {
+  return localEnvValue("NEWSROOM_CLAUDE_MODEL") ?? localEnvValue("ANTHROPIC_MODEL");
+}
+
 export function convexUrl() {
-  const url =
-    process.env.VITE_CONVEX_URL ?? fromFile(join(ROOT, ".env.local"), "VITE_CONVEX_URL");
+  const url = localEnvValue("VITE_CONVEX_URL");
   if (!url) throw new Error("No VITE_CONVEX_URL — run `npx convex dev` once first.");
   return url;
 }

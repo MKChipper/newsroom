@@ -7,6 +7,8 @@ dist/
 recordings-inbox/
 media-vault/
 Newsroom.app/
+macos/NewsroomDesktop/.build/
+macos/NewsroomDesktop/dist/
 .telegram-offset
 .firecrawl/
 .vercel

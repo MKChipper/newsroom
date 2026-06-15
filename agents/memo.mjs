@@ -7,9 +7,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ConvexHttpClient } from "convex/browser";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { ROOT, convexUrl } from "./env.mjs";
+import { ROOT, claudeModel, claudeSdkEnv, convexUrl } from "./env.mjs";
 
 const client = new ConvexHttpClient(convexUrl());
+const CLAUDE_MODEL = claudeModel();
 
 function extractJson(text) {
   const fenced = text.match(/```json\s*([\s\S]*?)```/);
@@ -59,6 +60,8 @@ const session = query({
     allowedTools: [],
     permissionMode: "bypassPermissions",
     maxTurns: 2,
+    ...(CLAUDE_MODEL ? { model: CLAUDE_MODEL } : {}),
+    env: claudeSdkEnv(),
   },
 });
 for await (const m of session) {

@@ -13,6 +13,7 @@
     "inbox": "node agents/inbox-watcher.mjs",
     "memo": "node agents/memo.mjs",
     "newsroom": "node agents/staff.mjs --all",
+    "check:claude": "node agents/check-claude-sdk.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

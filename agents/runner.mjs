@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { scratchRuntime } from "./scratch-tts.mjs";
-import { deliveryToken } from "./env.mjs";
+import { claudeModel, claudeSdkEnv, deliveryToken } from "./env.mjs";
 import {
   transcribe, alignSections, writeSrtFile, assemble, probeDuration,
 } from "./production.mjs";
@@ -27,6 +27,8 @@ const PROVIDERS = { gemini, fal, higgsfield };
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKER = `runner-${process.pid}`;
 const ONCE = process.argv.includes("--once");
+const CLAUDE_ENV = claudeSdkEnv();
+const CLAUDE_MODEL = claudeModel();
 
 function convexUrl() {
   if (process.env.VITE_CONVEX_URL) return process.env.VITE_CONVEX_URL;
@@ -68,6 +70,8 @@ async function runDeskText(deskName, prompt, { maxTurns = 2 } = {}) {
       allowedTools: [],
       permissionMode: "bypassPermissions",
       maxTurns,
+      ...(CLAUDE_MODEL ? { model: CLAUDE_MODEL } : {}),
+      env: CLAUDE_ENV,
     },
   });
   for await (const message of session) {
@@ -89,6 +93,8 @@ async function runDesk(deskName, prompt, { tools = [], maxTurns = 6, mcpServers 
       allowedTools: tools,
       permissionMode: "bypassPermissions",
       maxTurns,
+      ...(CLAUDE_MODEL ? { model: CLAUDE_MODEL } : {}),
+      env: CLAUDE_ENV,
       ...(mcpServers ? { mcpServers } : {}),
       stderr: (d) => {
         const line = String(d).trim();
