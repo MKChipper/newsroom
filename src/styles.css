@@ -442,6 +442,199 @@ label select {
   box-shadow: 0 1px 0 rgba(20, 31, 46, 0.02);
 }
 
+/* ---- Live "what's happening" status chips ---- */
+.state-live-working,
+.state-live-queued,
+.state-live-you,
+.state-live-done {
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-weight: 750;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.state-live-working {
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid #bfe6d3;
+}
+.state-live-queued {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid #f0dca0;
+}
+.state-live-you {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border: 1px solid #cfe0ff;
+}
+.state-live-done {
+  background: #eef1f4;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.live-pill { letter-spacing: 0; text-transform: none; }
+
+/* ---- Asset ownership split ---- */
+.asset-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; }
+.asset-who-you { background: var(--blue-soft); color: var(--blue); border: 1px solid #cfe0ff; }
+.asset-who-agent { background: var(--green-soft); color: var(--green); border: 1px solid #bfe6d3; }
+.asset-who-maybe { background: var(--amber-soft); color: var(--amber); border: 1px solid #f0dca0; }
+
+/* ---- Newsroom wire ---- */
+.wire {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 8px 4px;
+}
+.wire-head { margin-bottom: 12px; }
+.wire-head h2 { margin: 0 0 2px; }
+.wire-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wire-row {
+  display: grid;
+  grid-template-columns: 56px 78px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.wire-row:hover { background: var(--panel-2); }
+.wire-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.wire-kind {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 5px;
+  padding: 2px 0;
+  background: #eef1f4;
+  color: var(--muted);
+}
+.wire-kind-draft { background: var(--blue-soft); color: var(--blue); }
+.wire-kind-legal { background: #efeaf8; color: var(--violet); }
+.wire-kind-design, .wire-kind-gen { background: var(--green-soft); color: var(--green); }
+.wire-kind-angle { background: #fdeedd; color: #9a5b00; }
+.wire-kind-story, .wire-kind-tip { background: #eef1f4; color: var(--muted); }
+.wire-kind-publish { background: var(--green-soft); color: var(--green); }
+.wire-msg {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink);
+  font-weight: 600;
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wire-msg:disabled { cursor: default; color: var(--ink); }
+.wire-msg:not(:disabled):hover { color: var(--blue); text-decoration: underline; }
+.wire-warn .wire-msg { color: var(--amber); }
+.wire-error .wire-msg { color: var(--red); }
+
+/* ---- Per-story activity ---- */
+.story-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.story-activity li { font-size: 13px; color: var(--ink); }
+.story-activity .wire-time { margin-right: 4px; }
+.story-activity li.wire-warn { color: var(--amber); }
+
+.angle-room h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.angle-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+  max-height: 460px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.angle-msg {
+  border-radius: 10px;
+  padding: 9px 12px;
+  max-width: 88%;
+}
+
+.angle-msg .angle-who {
+  display: block;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+  color: var(--muted);
+}
+
+.angle-msg p {
+  white-space: pre-wrap;
+}
+
+.angle-liz {
+  align-self: flex-end;
+  background: var(--blue-soft);
+  border: 1px solid #cfe0ff;
+}
+
+.angle-liz .angle-who {
+  color: var(--blue);
+}
+
+.angle-desk {
+  align-self: flex-start;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.angle-desk .angle-who {
+  color: var(--violet);
+}
+
+.angle-pending {
+  opacity: 0.75;
+}
+
+.angle-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.angle-compose textarea {
+  min-height: 80px;
+}
+
+.angle-lock {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.angle-lock textarea {
+  min-height: 64px;
+  margin-bottom: 8px;
+}
+
 .composer {
   background: var(--panel);
   border: 1px solid var(--line);

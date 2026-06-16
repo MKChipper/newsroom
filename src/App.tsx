@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 
-type View = "posts" | "needs" | "pipeline" | "tips" | "recording" | "memos" | "brain" | "settings";
+type View = "posts" | "needs" | "wire" | "pipeline" | "tips" | "recording" | "memos" | "brain" | "settings";
 type PostTab = "ideas" | "drafts" | "approvals" | "ready" | "posted";
 
 const POST_TABS: { id: PostTab; label: string }[] = [
@@ -42,49 +42,29 @@ const promptHasOverlayDirection = (text: string) =>
 const promptHasChartDirection = (text: string) =>
   /\b(forest plot|bar|chart|axis|confidence interval|effect size|p\s*=|meta-analysis|trial|rct)\b/i.test(text);
 const cleanVisualBrief = (text: string) => {
+  // Keep the subject; strip only literal copy meant to be rendered as text.
   const clean = tidyPromptText(text)
     .replace(/\bSlide\s*\d+\s*[:,;-]?\s*/gi, "")
-    .replace(/\btitle card\b/gi, "background plate for editor-added title")
-    .replace(/\bhuge\s+['"][^'"]+['"][^,.;]*/gi, "large empty headline area")
-    .replace(/\b(sub-line|subtitle|caption)\s+['"][^'"]+['"][^,.;]*/gi, "secondary empty copy band")
-    .replace(/\bcitation[^,.;]*/gi, "small clear footer strip for editor-added citation")
-    .replace(/\bPMID\s*\d+\b/gi, "editor-added citation")
-    .replace(/\bp\s*=\s*[-\d.]+\b/gi, "editor-added statistic")
-    .replace(/['"][^'"]{2,}['"]/g, "editor-added overlay text")
+    .replace(/\btitle card\b/gi, "")
+    .replace(/\b(sub-?line|subtitle|caption|headline|lower third)\b\s*:?/gi, "")
+    .replace(/\bcitation[^,.;]*/gi, "")
+    .replace(/\bPMID\s*\d+\b/gi, "")
+    .replace(/\bp\s*=\s*[-\d.]+\b/gi, "")
+    .replace(/['"][^'"]+['"]/g, "")
+    .replace(/\s*[,;](\s*[,;])+/g, ", ")
     .replace(/\s+/g, " ")
     .trim();
-  return clean || "evidence-led visual background for the spoken beat";
+  return clean || "the subject of the spoken beat";
 };
-const visualModeForPrompt = (text: string) => {
-  const t = text.toLowerCase();
-  if (/\b(app|phone|screen recording|screenshot|search|url|product page)\b/.test(t)) return "app or browser proof plate";
-  if (/\b(label|bottle|capsule|tablet|powder|jar|product)\b/.test(t)) return "unbranded supplement product research plate";
-  if (promptHasChartDirection(text)) return "abstract evidence chart plate";
-  if (promptHasOverlayDirection(text)) return "typographic overlay background plate";
-  return "editorial evidence background plate";
-};
+// Deterministic fallback for the manual "Rebuild prompt" button — the art-director
+// desk writes the real prompts. Leads with the surviving subject, slim house tail.
 const buildImagePrompt = (slide: any, aspect = "9:16") => {
-  const source = tidyPromptText(slide?.visualNote ?? slide?.voLine);
-  const cleaned = cleanVisualBrief(source);
-  const mode = visualModeForPrompt(source);
-  const needsReal = promptNeedsRealAsset(source);
-  const chartLine = promptHasChartDirection(source)
-    ? "If a chart is implied, use abstract unlabeled evidence shapes only: a clean line, dot, interval bar, or paper stack with no axes, digits, labels, or fake data."
-    : "";
-  const realAssetLine = needsReal
-    ? "If the beat needs a real screenshot, app screen, PubMed record, label, product page, or receipt, do not invent it; generate only a polished background plate or device frame where the real asset can be composited later."
-    : "Use generic unbranded objects only; never invent real brands, product labels, medical claims, citations, or UI screens.";
-
+  const subject = cleanVisualBrief(tidyPromptText(slide?.visualNote ?? slide?.voLine));
   return [
-    `${aspect} De-Influenced social visual, professional editorial background plate, high-impact first-frame composition.`,
-    `Creative job: ${mode}; support the spoken beat without generating any words inside the image.`,
-    `Visual brief: ${cleaned}.`,
-    "Composition: one clear focal idea, strong foreground/background separation, generous clean negative space for editor-added headline, caption, numbers, and citation; keep the safe areas uncluttered for mobile cropping.",
-    "Look and lighting: premium documentary product-research photography, realistic desk or screen environment, soft directional light, crisp detail, restrained contrast, modern neutral palette with one sharp accent colour, not stock-photo glossy.",
-    chartLine,
-    realAssetLine,
-    "Strict negatives: no readable text, no letters, no numbers, no fake screenshots, no logos, no real brand names, no watermarks, no cartoon style, no influencer glamour, no fearmongering medical imagery.",
-  ].filter(Boolean).join(" ");
+    `${aspect} editorial documentary photograph for a De-Influenced social post: ${subject}.`,
+    "Premium product-research look: a real desk or counter scene, soft directional light, one clear focal subject, modern neutral palette with a single sharp accent colour, generous clean negative space for editor-added text.",
+    "No text, letters, numbers, logos, brand names, fake screenshots, charts with data, watermarks, or cartoon style.",
+  ].join(" ");
 };
 
 const METRIC_KEYS = ["views", "likes", "comments", "saves", "shares", "clicks", "follows"] as const;
@@ -160,8 +140,17 @@ const noteFor = (a: any) => {
     return {};
   }
 };
+const latestCarouselImages = (images: any[] = []) => {
+  const slides = images.filter((a) => noteFor(a).carouselSlide);
+  if (slides.length === 0) return [];
+  const latest = Math.max(...slides.map((a) => Number(noteFor(a).renderedAt ?? 0)));
+  return slides
+    .filter((a) => !latest || Number(noteFor(a).renderedAt ?? 0) === latest)
+    .sort((a, b) => Number(noteFor(a).sectionIndex ?? 0) - Number(noteFor(b).sectionIndex ?? 0));
+};
 
 const pretty = (s?: string) => (s ?? "?").replace(/_/g, " ");
+const isCarouselFormat = (format?: string) => /carousel/i.test(format ?? "");
 const routeSearchText = (route?: any) =>
   [
     route?.title,
@@ -233,6 +222,45 @@ const nextAction = (story: any, item?: any) => {
   return pretty(story.status);
 };
 
+// Lock TTL must match convex/pipeline.ts — a story locked within this window is
+// being actively worked by a desk; older/absent locks mean it's only queued.
+const LOCK_TTL_MS = 30 * 60 * 1000;
+const AUTO_DESKS: Record<string, string> = {
+  drafting: "Writers' room",
+  legal_review: "Legal desk",
+  production: "Production",
+  packaging: "Packaging",
+};
+
+type LiveTone = "working" | "queued" | "you" | "done";
+const LIVE_ICON: Record<LiveTone, string> = { working: "▶", queued: "⏳", you: "◆", done: "✓" };
+
+// One plain-language line answering "what is happening with this post right now".
+const liveStatus = (story: any): { text: string; tone: LiveTone } => {
+  if (!story) return { text: "", tone: "you" };
+  const desk = AUTO_DESKS[story.status];
+  if (desk) {
+    const working = story.lockedBy && (story.lockedAt ?? 0) > Date.now() - LOCK_TTL_MS;
+    return working
+      ? { text: `${desk} working now`, tone: "working" }
+      : { text: `Queued for ${desk.toLowerCase()}`, tone: "queued" };
+  }
+  if (story.status === "posted" || story.status === "rated") return { text: "Posted", tone: "done" };
+  const owed: Record<string, string> = {
+    idea: "Pick a route",
+    angle: "In the angle room",
+    gate1: "Approve the copy",
+    design: "Pick visuals",
+    recording: "Record voice",
+    gate2: "Approve the final",
+    ready_to_post: "Post it manually",
+  };
+  return { text: owed[story.status] ?? pretty(story.status), tone: "you" };
+};
+
+const fmtTime = (ts: number) =>
+  new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 export default function App() {
   const [view, setView] = useState<View>("posts");
   const [selected, setSelected] = useState<Id<"stories"> | null>(null);
@@ -249,6 +277,7 @@ export default function App() {
           {([
             ["posts", "All posts"],
             ["needs", "Needs me"],
+            ["wire", "Wire"],
             ["pipeline", "Pipeline"],
             ["tips", "Tip line"],
             ["recording", "Recording"],
@@ -266,6 +295,7 @@ export default function App() {
       <main>
         {view === "posts" && <PostStudio selected={selected} setSelected={setSelected} />}
         {view === "needs" && <AssetInbox setSelected={(id) => { setSelected(id); setView("posts"); }} />}
+        {view === "wire" && <Wire onOpen={(id) => { setSelected(id); setView("posts"); }} />}
         {view === "pipeline" && <Pipeline selected={selected} setSelected={setSelected} />}
         {view === "tips" && <TipLine />}
         {view === "recording" && <RecordingDesk />}
@@ -356,6 +386,7 @@ function PostCard({ item, selected, onClick }: { item: any; selected: boolean; o
   const draft = item.draft;
   const route = item.selectedRoute ?? item.routes?.[0];
   const asset = item.previewAsset;
+  const live = liveStatus(story);
   return (
     <button className={`post-card ${selected ? "selected" : ""}`} onClick={onClick}>
       <div className="thumb">
@@ -370,7 +401,7 @@ function PostCard({ item, selected, onClick }: { item: any; selected: boolean; o
       <div className="post-card-body">
         <div className="post-card-top">
           <strong>{story.title}</strong>
-          <span className={`state state-${statusGroup(story.status)}`}>{nextAction(story, item)}</span>
+          <span className={`state state-live-${live.tone}`}>{LIVE_ICON[live.tone]} {live.text}</span>
         </div>
         <div className="post-card-meta">
           <span>{pretty(story.platform)}</span>
@@ -416,13 +447,16 @@ function StoryStudioLoaded({ storyId }: { storyId: Id<"stories"> }) {
   if (!data) return <section className="studio" />;
 
   const story = (data as any).story;
+  const live = liveStatus(story);
   const routes = (data as any).routes ?? [];
   const selectedRoute = routes.find((r: any) => r.selected);
   const postReviews = (data as any).postReviews ?? [];
   const latestRouteReview = selectedRouteReview(postReviews, selectedRoute?._id);
   const script = ((data as any).scripts ?? []).filter((s: any) => s.status !== "superseded").sort((a: any, b: any) => b.version - a.version)[0];
   const master = ((data as any).assets ?? []).find((a: any) => a.kind === "master");
-  const images = ((data as any).assets ?? []).filter((a: any) => a.kind === "image");
+  const allImages = ((data as any).assets ?? []).filter((a: any) => a.kind === "image");
+  const carouselImages = latestCarouselImages(allImages);
+  const images = carouselImages.length ? carouselImages : allImages;
   const estTotal = ((data as any).runs ?? [])
     .filter((r: any) => r.status !== "failed")
     .reduce((n: number, r: any) => n + r.estCostUsd, 0);
@@ -444,6 +478,7 @@ function StoryStudioLoaded({ storyId }: { storyId: Id<"stories"> }) {
         <div>
           <h2>{story.title}</h2>
           <div className="meta-row">
+            <span className={`pill live-pill state-live-${live.tone}`}>{LIVE_ICON[live.tone]} {live.text}</span>
             <span className={`pill job-${story.job}`}>{pretty(story.job)}</span>
             <span className="pill">{pretty(story.status)}</span>
             <span className="pill">{pretty(story.platform)}</span>
@@ -456,6 +491,8 @@ function StoryStudioLoaded({ storyId }: { storyId: Id<"stories"> }) {
       <div className="studio-grid">
         <div className="studio-main">
           <PostPreview story={story} route={selectedRoute ?? routes[0]} script={script} draft={(data as any).postDraft} master={master} images={images} />
+
+          {story.status === "angle" && <AngleRoom storyId={storyId} selectedRoute={selectedRoute} />}
 
           {story.status === "design" && <DesignStudio storyId={storyId} />}
 
@@ -474,6 +511,7 @@ function StoryStudioLoaded({ storyId }: { storyId: Id<"stories"> }) {
 
         <aside className="studio-side">
           <BriefPanel brief={(data as any).brief} story={story} />
+          <StoryActivity storyId={storyId} />
           <RoutePanel
             storyId={storyId}
             routes={routes}
@@ -862,32 +900,51 @@ function RoutePanel({ storyId, routes, selectedRoute, onSelect }: any) {
   );
 }
 
+const assetOwnerChip = (req: any): { text: string; tone: string } => {
+  if (req.kind === "voice") return { text: "🎙️ You record (CapCut)", tone: "you" };
+  if (req.owner === "agent") return { text: "🤖 App makes this", tone: "agent" };
+  if (req.kind === "screenshot") return req.canAgentAttempt
+    ? { text: "📸 App can try, else you", tone: "maybe" }
+    : { text: "📸 You grab", tone: "you" };
+  return { text: "🙋 You", tone: "you" };
+};
+
 function AssetRequestPanel({ requests, attachFiles, updateAsset }: any) {
   const open = requests.filter((r: any) => r.status !== "waived");
+  const youCount = open.filter((r: any) => r.owner === "liz").length;
+  const agentCount = open.filter((r: any) => r.owner === "agent").length;
   return (
     <section className="surface">
       <h3>Assets</h3>
       {open.length === 0 && <p className="muted">No explicit asset requests.</p>}
-      {open.map((req: any) => (
-        <div key={req._id} className="asset-row">
-          <div>
-            <strong>{req.label}</strong>
-            <span>{req.owner} / {pretty(req.kind)} / {pretty(req.status)}</span>
-            <p>{req.instructions}</p>
-            {req.filePath && <a href={mediaUrl(req.filePath)} target="_blank" rel="noreferrer">Open file</a>}
+      {open.length > 0 && <p className="muted">{youCount} from you · {agentCount} the app makes</p>}
+      {open.map((req: any) => {
+        const chip = assetOwnerChip(req);
+        return (
+          <div key={req._id} className="asset-row">
+            <div>
+              <strong>{req.label}</strong>
+              <div className="asset-tags">
+                <span className={`pill asset-who-${chip.tone}`}>{chip.text}</span>
+                <span className="pill">{pretty(req.status)}</span>
+              </div>
+              <p>{req.instructions}</p>
+              {req.sourceUrl && <a href={req.sourceUrl} target="_blank" rel="noreferrer">Source page ↗</a>}
+              {req.filePath && <a href={mediaUrl(req.filePath)} target="_blank" rel="noreferrer">Open file</a>}
+            </div>
+            <div className="asset-actions">
+              {req.owner === "liz" && (
+                <label className="mini-button">
+                  Attach
+                  <input type="file" style={{ display: "none" }} onChange={(e: any) => { attachFiles(req._id, e.target.files); e.target.value = ""; }} />
+                </label>
+              )}
+              {req.status === "needed" && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "waived" })}>Waive</button>}
+              {req.status === "supplied" && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "selected" })}>Use</button>}
+            </div>
           </div>
-          <div className="asset-actions">
-            {req.owner === "liz" && (
-              <label className="mini-button">
-                Attach
-                <input type="file" style={{ display: "none" }} onChange={(e: any) => { attachFiles(req._id, e.target.files); e.target.value = ""; }} />
-              </label>
-            )}
-            {req.status === "needed" && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "waived" })}>Waive</button>}
-            {req.status === "supplied" && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "selected" })}>Use</button>}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -1070,6 +1127,127 @@ function Pipeline({ selected, setSelected }: { selected: Id<"stories"> | null; s
   );
 }
 
+function Wire({ onOpen }: { onOpen: (id: Id<"stories">) => void }) {
+  const events = useQuery(api.events.recent, { limit: 80 }) ?? [];
+  return (
+    <section className="wire">
+      <div className="wire-head">
+        <h2>Newsroom wire</h2>
+        <p className="muted">Live activity from the desks — newest first. Click a line to open its post.</p>
+      </div>
+      {events.length === 0 && <p className="muted">No activity yet. As the desks work, it shows up here in real time.</p>}
+      <ul className="wire-list">
+        {events.map((e: any) => (
+          <li key={e._id} className={`wire-row ${e.level === "warn" ? "wire-warn" : ""} ${e.level === "error" ? "wire-error" : ""}`}>
+            <span className="wire-time">{fmtTime(e.createdAt)}</span>
+            <span className={`wire-kind wire-kind-${e.kind}`}>{e.kind}</span>
+            <button className="wire-msg" disabled={!e.storyId} onClick={() => e.storyId && onOpen(e.storyId)}>
+              {e.message}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function StoryActivity({ storyId }: { storyId: Id<"stories"> }) {
+  const events = useQuery(api.events.recent, { storyId, limit: 25 }) ?? [];
+  if (events.length === 0) return null;
+  return (
+    <section className="surface">
+      <h3>Activity</h3>
+      <ul className="story-activity">
+        {events.map((e: any) => (
+          <li key={e._id} className={e.level === "warn" || e.level === "error" ? "wire-warn" : ""}>
+            <span className="wire-time">{fmtTime(e.createdAt)}</span> {e.message}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function AngleRoom({ storyId, selectedRoute }: { storyId: Id<"stories">; selectedRoute?: any }) {
+  const thread = useQuery(api.design.angleThread, { storyId });
+  const addMessage = useMutation(api.design.addAngleMessage);
+  const lockAngle = useMutation(api.design.lockAngle);
+
+  const [draft, setDraft] = useState("");
+  const [angle, setAngle] = useState("");
+  const [sending, setSending] = useState(false);
+
+  if (!thread) return null;
+
+  const last = thread[thread.length - 1];
+  const deskThinking = Boolean(last && last.role === "liz");
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    try {
+      await addMessage({ storyId, role: "liz", text });
+      setDraft("");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const lock = async () => {
+    const spine = angle.trim();
+    if (!spine) return;
+    await lockAngle({ storyId, angle: spine });
+  };
+
+  return (
+    <section className="surface angle-room">
+      <h3>Angle room</h3>
+      <p className="muted">
+        Agree the angle and concept with the sparring-partner desk before anything drafts.
+        When you have converged, type the agreed spine below and lock it — that releases the
+        writers' room. Assets and prompts come later, in the design studio.
+      </p>
+
+      <div className="angle-thread">
+        {thread.length === 0 && (
+          <p className="muted">No messages yet. Open with the angle you are leaning toward and the desk will push back.</p>
+        )}
+        {thread.map((m: any) => (
+          <div key={m._id} className={`angle-msg angle-${m.role}`}>
+            <span className="angle-who">{m.role === "liz" ? "You" : "Desk"}</span>
+            <p>{m.text}</p>
+          </div>
+        ))}
+        {deskThinking && <div className="angle-msg angle-desk angle-pending"><span className="angle-who">Desk</span><p className="muted">thinking…</p></div>}
+      </div>
+
+      <div className="angle-compose">
+        <textarea
+          value={draft}
+          placeholder="Make your case to the desk…"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send(); }}
+        />
+        <button className="primary" disabled={!draft.trim() || sending} onClick={send}>
+          {sending ? "Sending" : "Send"}
+        </button>
+      </div>
+
+      <div className="angle-lock">
+        <h4>Lock the agreed angle + concept</h4>
+        <p className="muted">One or two sentences — the editorial spine the writers' room drafts from.</p>
+        <textarea
+          value={angle}
+          placeholder={selectedRoute?.angle ?? "The agreed spine for this post…"}
+          onChange={(e) => setAngle(e.target.value)}
+        />
+        <button className="secondary wide" disabled={!angle.trim()} onClick={lock}>Lock angle → writers' room</button>
+      </div>
+    </section>
+  );
+}
+
 function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
   const board = useQuery(api.design.board, { storyId });
   const story = useQuery(api.pipeline.storyDetail, { storyId });
@@ -1078,6 +1256,7 @@ function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
   const queueGen = useMutation(api.design.queueGen);
   const addCandidate = useMutation(api.design.addCandidate);
   const sendToAssembly = useMutation(api.design.sendToAssembly);
+  const queuePromptRewrite = useMutation(api.design.queuePromptRewrite);
 
   const [gen, setGen] = useState({ provider: "higgsfield", model: "gpt_image_2", count: 2, aspect: "9:16", quality: "high" });
   const [prompts, setPrompts] = useState<Record<string, string>>({});
@@ -1095,11 +1274,14 @@ function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
 
   if (!board) return null;
   const { slides, candidates, requests } = board as any;
+  const rewriting = Boolean((story as any)?.story?.promptsRewriteAt);
+  const storyFormat = (story as any)?.story?.format ?? "";
+  const carousel = isCarouselFormat(storyFormat);
   const slideCands = (id: string) => candidates.filter((c: any) => c.slideId === id);
   const mockups = candidates.filter((c: any) => c.kind === "mockup");
   const busy = (id?: string) => requests.some((r: any) => (id ? r.slideId === id : r.kind === "mockup") && ["queued", "running"].includes(r.status));
   const lastFail = (id?: string) => requests.filter((r: any) => (id ? r.slideId === id : r.kind === "mockup") && r.status === "failed").slice(-1)[0];
-  const allPicked = slides.length > 0 && slides.every((s: any) => s.selectedCandidateId);
+  const allPicked = slides.length > 0 && (carousel || slides.every((s: any) => s.selectedCandidateId));
   const fire = (slide: any | null, prompt: string) =>
     queueGen({
       storyId,
@@ -1140,8 +1322,11 @@ function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
         <label>Aspect<select value={gen.aspect} onChange={(e) => setGen({ ...gen, aspect: e.target.value })}>{["9:16", "4:5", "1:1", "16:9"].map((a) => <option key={a}>{a}</option>)}</select></label>
         <label>Quality<select value={gen.quality} onChange={(e) => setGen({ ...gen, quality: e.target.value })}>{["high", "medium", "low"].map((q) => <option key={q}>{q}</option>)}</select></label>
       </div>
+      <button className="primary wide" disabled={slides.length === 0 || rewriting} onClick={() => queuePromptRewrite({ storyId })}>
+        {rewriting ? "Art director rewriting prompts…" : "Rewrite prompts with the art director"}
+      </button>
       <button className="secondary wide" disabled={slides.length === 0} onClick={rebuildAllPrompts}>
-        Rebuild image prompts
+        Quick rebuild (offline template)
       </button>
       <button className="secondary wide" disabled={busy()} onClick={() => fire(null, [
         `16:9 internal storyboard contact sheet for a De-Influenced social post, ${slides.length} panels in a clean grid.`,
@@ -1197,7 +1382,7 @@ function DesignStudio({ storyId }: { storyId: Id<"stories"> }) {
           setErr(e.message ?? String(e));
         }
       }}>
-        {allPicked ? "Send to assembly" : "Pick a visual for every row"}
+        {allPicked ? (carousel ? "Render carousel deck" : "Send to assembly") : "Pick a visual for every row"}
       </button>
     </section>
   );

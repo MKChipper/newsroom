@@ -21,6 +21,23 @@ const postStage = (status: string) => {
   return "drafts";
 };
 
+const isCarouselFormat = (format?: string) => /carousel/i.test(format ?? "");
+const assetMeta = (asset: any) => {
+  try {
+    return JSON.parse(asset.meta ?? "{}");
+  } catch {
+    return {};
+  }
+};
+const latestCarouselImages = (assets: any[]) => {
+  const slides = assets.filter((a) => a.kind === "image" && assetMeta(a).carouselSlide);
+  if (slides.length === 0) return [];
+  const latest = Math.max(...slides.map((a) => Number(assetMeta(a).renderedAt ?? 0)));
+  return slides
+    .filter((a) => !latest || Number(assetMeta(a).renderedAt ?? 0) === latest)
+    .sort((a, b) => Number(assetMeta(a).sectionIndex ?? 0) - Number(assetMeta(b).sectionIndex ?? 0));
+};
+
 const reviewGate = v.union(
   v.literal("green"),
   v.literal("amber"),
@@ -231,8 +248,135 @@ export const lockAngle = mutation({
     await ctx.db.patch(storyId, {
       angle,
       status: "drafting",
-      statusNote: "angle locked in the angle room",
+      statusNote: "angle locked — producer rebuilding the brief",
+      // the runner's producer pass turns the angle-room conversation into the
+      // real brief (format + structure + split assets) before drafting.
+      producerPending: true,
       updatedAt: Date.now(),
+    });
+  },
+});
+
+export const clearProducerPending = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    await ctx.db.patch(storyId, { producerPending: false });
+  },
+});
+
+const ASSET_KINDS = new Set([
+  "screenshot", "receipt", "product", "reference", "voice", "face",
+  "generated_image", "generated_video", "other",
+]);
+const ASSET_STRATEGIES = new Set([
+  "agent_can_create", "needs_liz_assets", "mixed", "informational_only",
+]);
+
+// Apply the producer's brief: supersede the commissioned route with one built
+// from what the angle room actually agreed, and rebuild the asset list (split by
+// owner, with the screenshot agent/human flags). This is what stops the drafted
+// post drifting back to a stale route.
+export const applyProducerBrief = mutation({
+  args: {
+    storyId: v.id("stories"),
+    brief: v.object({
+      format: v.string(),
+      platform: v.optional(v.string()),
+      postType: v.string(),
+      spine: v.string(),
+      structure: v.string(),
+      visualTreatment: v.optional(v.string()),
+      assetStrategy: v.optional(v.string()),
+      rationale: v.optional(v.string()),
+      assets: v.array(
+        v.object({
+          owner: v.string(),
+          kind: v.string(),
+          label: v.string(),
+          instructions: v.string(),
+          required: v.optional(v.boolean()),
+          canAgentAttempt: v.optional(v.boolean()),
+          sourceUrl: v.optional(v.string()),
+        })
+      ),
+    }),
+  },
+  handler: async (ctx, { storyId, brief }) => {
+    const now = Date.now();
+    const story = await ctx.db.get(storyId);
+    if (!story) throw new Error("story not found");
+    const platform = brief.platform || story.platform || "instagram";
+    const strategy = ASSET_STRATEGIES.has(brief.assetStrategy ?? "") ? (brief.assetStrategy as any) : "mixed";
+
+    // 1. supersede every existing route
+    const routes = await ctx.db
+      .query("formatRoutes")
+      .withIndex("by_story", (q) => q.eq("storyId", storyId))
+      .collect();
+    const order = routes.reduce((m, r) => Math.max(m, r.order), 0) + 1;
+    for (const r of routes) {
+      if (r.selected) await ctx.db.patch(r._id, { selected: false, updatedAt: now });
+    }
+
+    // 2. insert the producer's route as the selected one
+    const routeId = await ctx.db.insert("formatRoutes", {
+      storyId,
+      order,
+      title: brief.postType,
+      angle: brief.spine,
+      platform,
+      format: brief.format,
+      postType: brief.postType,
+      structure: brief.structure,
+      visualTreatment: brief.visualTreatment ?? "",
+      assetStrategy: strategy,
+      lizAssetNeeds: brief.assets.filter((a) => a.owner === "liz").map((a) => a.label),
+      agentAssetPlan: brief.assets.filter((a) => a.owner === "agent").map((a) => a.label),
+      rationale: brief.rationale ?? "Rebuilt from the angle room.",
+      risk: "low",
+      effort: 3,
+      selected: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // 3. clear the stale open asset demands, keep anything already supplied
+    const requests = await ctx.db
+      .query("assetRequests")
+      .withIndex("by_story", (q) => q.eq("storyId", storyId))
+      .collect();
+    for (const req of requests) {
+      if (req.status === "needed" || req.status === "generating") {
+        await ctx.db.delete(req._id);
+      }
+    }
+
+    // 4. create the agreed split asset list
+    for (const a of brief.assets) {
+      await ctx.db.insert("assetRequests", {
+        storyId,
+        routeId,
+        owner: a.owner === "agent" ? "agent" : "liz",
+        kind: (ASSET_KINDS.has(a.kind) ? a.kind : "other") as any,
+        label: a.label.slice(0, 80),
+        instructions: a.instructions,
+        required: a.required ?? true,
+        ...(a.canAgentAttempt !== undefined ? { canAgentAttempt: a.canAgentAttempt } : {}),
+        ...(a.sourceUrl ? { sourceUrl: a.sourceUrl } : {}),
+        status: "needed",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // 5. patch the story onto the agreed format + clean spine
+    await ctx.db.patch(storyId, {
+      format: brief.format,
+      platform,
+      angle: brief.spine,
+      producerPending: false,
+      statusNote: "brief rebuilt from the angle room",
+      updatedAt: now,
     });
   },
 });
@@ -597,7 +741,8 @@ export const postStudioList = query({
       const lizNeeded = requests.filter((r) => r.owner === "liz" && r.status === "needed").length;
       const agentNeeded = requests.filter((r) => r.owner === "agent" && (r.status === "needed" || r.status === "generating")).length;
       const master = assets.find((a) => a.kind === "master");
-      const image = assets.find((a) => a.kind === "image");
+      const carouselImage = latestCarouselImages(assets)[0];
+      const image = carouselImage ?? assets.find((a) => a.kind === "image");
       const draft = drafts.sort((a, b) => b.updatedAt - a.updatedAt)[0];
       const sortedReviews = reviews.sort((a, b) => b.updatedAt - a.updatedAt);
       const latestReview = selectedRoute
@@ -741,6 +886,37 @@ export const updatePrompt = mutation({
   },
 });
 
+// "Rewrite prompts" button: flag the story so the runner re-authors every slide's
+// image prompt with the art-director desk.
+export const queuePromptRewrite = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    await ctx.db.patch(storyId, { promptsRewriteAt: Date.now() });
+  },
+});
+
+export const clearPromptRewrite = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    await ctx.db.patch(storyId, { promptsRewriteAt: undefined });
+  },
+});
+
+// The runner polls this; returns the oldest story waiting on a prompt rewrite.
+export const nextPromptRewrite = query({
+  args: {},
+  handler: async (ctx) => {
+    const stories = await ctx.db
+      .query("stories")
+      .withIndex("by_status", (q) => q.eq("status", "design"))
+      .collect();
+    const waiting = stories
+      .filter((s) => s.promptsRewriteAt)
+      .sort((a, b) => (a.promptsRewriteAt ?? 0) - (b.promptsRewriteAt ?? 0));
+    return waiting[0]?._id ?? null;
+  },
+});
+
 export const selectCandidate = mutation({
   args: {
     slideId: v.id("designSlides"),
@@ -864,8 +1040,9 @@ export const sendToAssembly = mutation({
       .withIndex("by_story", (q) => q.eq("storyId", storyId))
       .collect();
     const unpicked = slides.filter((s) => !s.selectedCandidateId);
+    const carousel = isCarouselFormat(story.format);
     if (!slides.length) throw new Error("no slides on the board");
-    if (unpicked.length) {
+    if (unpicked.length && !carousel) {
       throw new Error(`${unpicked.length} slide(s) have no selected visual`);
     }
     // register winners as story assets so assembly + gate 2 see them —
@@ -879,6 +1056,7 @@ export const sendToAssembly = mutation({
       if (a.kind === "image") await ctx.db.delete(a._id);
     }
     for (const s of slides) {
+      if (!s.selectedCandidateId) continue;
       const winner = await ctx.db.get(s.selectedCandidateId!);
       if (winner) {
         await ctx.db.insert("assets", {
@@ -900,7 +1078,9 @@ export const sendToAssembly = mutation({
       status: owed ? "recording" : "production",
       statusNote: owed
         ? "design locked — waiting on recordings"
-        : "design locked — assembling",
+        : carousel
+          ? "carousel copy locked — rendering deck"
+          : "design locked — assembling",
       updatedAt: Date.now(),
     });
   },

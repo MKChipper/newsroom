@@ -97,10 +97,28 @@ export default defineSchema({
     statusNote: v.optional(v.string()),
     lockedBy: v.optional(v.string()),
     lockedAt: v.optional(v.number()),
+    // set when Liz asks the art director to re-author this story's image prompts
+    promptsRewriteAt: v.optional(v.number()),
+    // set at angle-lock: the runner's producer must (re)build the brief from the
+    // angle-room conversation before the writers' room drafts.
+    producerPending: v.optional(v.boolean()),
     updatedAt: v.number(),
   })
     .index("by_status", ["status"])
     .index("by_slug", ["slug"]),
+
+  // Newsroom wire: a running log of what the desks/agents are doing, so the
+  // dashboard can show activity instead of it only living in the runner console.
+  events: defineTable({
+    kind: v.string(), // tip | story | angle | draft | legal | design | gen | produce | publish | error
+    level: v.optional(v.string()), // info (default) | warn | error
+    storyId: v.optional(v.id("stories")),
+    storyTitle: v.optional(v.string()),
+    message: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_time", ["createdAt"])
+    .index("by_story", ["storyId"]),
 
   tips: defineTable({
     kind: v.union(
@@ -281,6 +299,10 @@ export default defineSchema({
     label: v.string(),
     instructions: v.string(),
     required: v.boolean(),
+    // screenshot split: true if the agent could capture this itself (public URL),
+    // false if only Liz can (login-walled, her own footage). sourceUrl when known.
+    canAgentAttempt: v.optional(v.boolean()),
+    sourceUrl: v.optional(v.string()),
     status: v.union(
       v.literal("needed"),
       v.literal("supplied"),

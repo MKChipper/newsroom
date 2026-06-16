@@ -8,7 +8,7 @@
 //         node agents/runner.mjs --once   (drain current work, then exit)
 
 import { readFileSync, existsSync, mkdirSync, openAsBlob } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
@@ -18,6 +18,7 @@ import { claudeModel, claudeSdkEnv, deliveryToken } from "./env.mjs";
 import {
   transcribe, alignSections, writeSrtFile, assemble, probeDuration,
 } from "./production.mjs";
+import { renderCarouselDeck } from "./compositors/carousel-deck.mjs";
 import * as gemini from "./providers/gemini.mjs";
 import * as fal from "./providers/fal.mjs";
 import * as higgsfield from "./providers/higgsfield.mjs";
@@ -126,6 +127,26 @@ async function brainContext() {
 }
 
 const countWords = (t) => t.trim().split(/\s+/).filter(Boolean).length;
+const isCarouselFormat = (format = "") => /carousel/i.test(String(format));
+const carouselRenderFormat = (story) =>
+  String(story.format ?? "").includes("tiktok") || story.platform === "tiktok"
+    ? "tiktok"
+    : "instagram";
+const assetMeta = (asset) => {
+  try {
+    return JSON.parse(asset.meta ?? "{}");
+  } catch {
+    return {};
+  }
+};
+const currentCarouselSlides = (assets = []) => {
+  const slides = assets.filter((a) => a.kind === "image" && assetMeta(a).carouselSlide);
+  if (!slides.length) return [];
+  const latest = Math.max(...slides.map((a) => Number(assetMeta(a).renderedAt ?? 0)));
+  return slides
+    .filter((a) => !latest || Number(assetMeta(a).renderedAt ?? 0) === latest)
+    .sort((a, b) => Number(assetMeta(a).sectionIndex ?? 0) - Number(assetMeta(b).sectionIndex ?? 0));
+};
 
 // agents emit `null` for missing optionals (their JSON contracts say so);
 // Convex optionals want the field absent — normalise here, once
@@ -284,24 +305,106 @@ async function processTip(tipId) {
       audienceLanguage: brief.audienceLanguage,
       routes: brief.routes,
     });
+    await logEvent("story", `Story desk filed "${s.title}" [${s.job}]`, { storyId, storyTitle: s.title });
     console.log(`  filed story card: ${s.title} [${s.job}]`);
+  }
+}
+
+// ---- Activity wire --------------------------------------------------------------
+// Every meaningful desk step posts a one-line event so the dashboard can show
+// what's happening. Best-effort: a logging failure never breaks the runner.
+async function logEvent(kind, message, opts = {}) {
+  try {
+    await client.mutation("events:log", { kind, message, ...opts });
+  } catch (err) {
+    console.error(`  (event log failed: ${String(err.message).slice(0, 60)})`);
   }
 }
 
 // ---- Writers' room -------------------------------------------------------------
 
-async function draftStory(storyId) {
-  const story = await client.mutation("pipeline:claimStory", { storyId, worker: WORKER });
-  if (!story) return;
-  console.log(`Drafting: ${story.title}`);
+// Coerce the producer desk's JSON into the exact shape applyProducerBrief expects
+// (omit undefined optionals so Convex validation is happy).
+function normalizeBrief(b) {
+  const out = {
+    format: String(b.format),
+    postType: String(b.postType ?? "post"),
+    spine: String(b.spine ?? ""),
+    structure: String(b.structure ?? ""),
+    assets: (b.assets ?? []).map((a) => {
+      const asset = {
+        owner: a.owner === "agent" ? "agent" : "liz",
+        kind: String(a.kind ?? "other"),
+        label: String(a.label ?? "asset").slice(0, 80),
+        instructions: String(a.instructions ?? a.label ?? ""),
+        required: a.required !== false,
+      };
+      if (typeof a.canAgentAttempt === "boolean") asset.canAgentAttempt = a.canAgentAttempt;
+      if (a.sourceUrl) asset.sourceUrl = String(a.sourceUrl);
+      return asset;
+    }),
+  };
+  if (b.platform) out.platform = String(b.platform);
+  if (b.visualTreatment) out.visualTreatment = String(b.visualTreatment);
+  if (b.assetStrategy) out.assetStrategy = String(b.assetStrategy);
+  if (b.rationale) out.rationale = String(b.rationale);
+  return out;
+}
+
+// Producer pass: turn the locked angle-room conversation into the real brief
+// (format + structure + split asset list), superseding the commissioned route.
+async function runProducer(storyId) {
   const detail = await client.query("pipeline:storyDetail", { storyId });
+  const thread = await client.query("design:angleThread", { storyId });
+  const { docText } = await brainContext();
+  try {
+    const brief = await runDesk(
+      "producer",
+      [
+        docText,
+        "## The story",
+        JSON.stringify({ title: detail.story.title, job: detail.story.job, angle: detail.story.angle, summary: detail.story.summary, platform: detail.story.platform, format: detail.story.format }, null, 2),
+        "## Claims ledger (the receipts)",
+        JSON.stringify(detail.claims.map((c) => ({ text: c.text, classification: c.classification, citation: c.citation })), null, 2),
+        "## The angle-room conversation (the FINAL agreement is the source of truth — it overrides the commissioned route)",
+        thread.map((m) => `${m.role === "liz" ? "LIZ" : "DESK"}: ${m.text}`).join("\n\n"),
+        "## Your output",
+        "Produce the brief per the rules of the producer desk. Return JSON only.",
+      ].join("\n\n"),
+      { maxTurns: 3 }
+    );
+    if (!brief || !brief.format || !Array.isArray(brief.assets)) {
+      throw new Error("producer returned no usable brief");
+    }
+    await client.mutation("design:applyProducerBrief", { storyId, brief: normalizeBrief(brief) });
+    await logEvent("draft", `Producer rebuilt the brief from the angle room (${brief.format}, ${brief.assets.length} assets)`, { storyId, storyTitle: detail.story.title });
+    console.log(`  producer brief: ${brief.format}, ${brief.assets.length} assets`);
+  } catch (err) {
+    console.error(`  producer failed — drafting from existing route: ${err.message}`);
+    await client.mutation("design:clearProducerPending", { storyId });
+    await logEvent("draft", `Producer failed (${String(err.message).slice(0, 80)}) — kept existing route`, { storyId, storyTitle: detail.story.title, level: "warn" });
+  }
+}
+
+async function draftStory(storyId) {
+  let story = await client.mutation("pipeline:claimStory", { storyId, worker: WORKER });
+  if (!story) return;
+  // angle just locked → rebuild the brief from the conversation before drafting,
+  // so the writers' room works from what was agreed, not the commissioned route.
+  if (story.producerPending) await runProducer(storyId);
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  story = detail.story ?? story;
+  console.log(`Drafting: ${story.title}`);
+  await logEvent("draft", `Writers' room drafting "${story.title}"`, { storyId, storyTitle: story.title });
   const workspace = await client.query("design:creativeWorkspace", { storyId });
   const selectedRoute = workspace?.routes?.find((r) => r.selected);
   const { docText, settings } = await brainContext();
 
   const wpm = Number(settings.speech_wpm ?? 155);
   const targets = JSON.parse(settings.format_targets ?? "{}");
-  const target = targets[story.format ?? "tiktok_video"] ?? 32;
+  const target = isCarouselFormat(story.format)
+    ? 0
+    : targets[story.format ?? "tiktok_video"] ?? 32;
 
   const prompt = [
     docText,
@@ -391,7 +494,9 @@ async function draftStory(storyId) {
   }
 
   await client.mutation("pipeline:transition", { storyId, to: "legal_review" });
-  console.log(`  drafted v-next, ${sections.reduce((n, s) => n + s.wordCount, 0)} words → legal desk`);
+  const totalWords = sections.reduce((n, s) => n + s.wordCount, 0);
+  await logEvent("draft", `Drafted ${totalWords} words → legal desk`, { storyId, storyTitle: story.title });
+  console.log(`  drafted v-next, ${totalWords} words → legal desk`);
 }
 
 // ---- Legal desk -----------------------------------------------------------------
@@ -400,6 +505,7 @@ async function legalReview(storyId) {
   const story = await client.mutation("pipeline:claimStory", { storyId, worker: WORKER });
   if (!story) return;
   console.log(`Legal review: ${story.title}`);
+  await logEvent("legal", `Legal desk reviewing "${story.title}"`, { storyId, storyTitle: story.title });
   const detail = await client.query("pipeline:storyDetail", { storyId });
   const { docText, settings } = await brainContext();
   const script = detail.scripts.find((s) => s.status === "draft");
@@ -468,6 +574,7 @@ async function legalReview(storyId) {
       to: "gate1",
       note: gateNote || undefined,
     });
+    await logEvent("legal", `Legal cleared → Gate 1 (your copy approval)`, { storyId, storyTitle: story.title });
     console.log("  passed → Gate 1");
   } else {
     await client.mutation("production:setScriptStatus", {
@@ -484,11 +591,18 @@ async function legalReview(storyId) {
           .map((n) => `- "${n.quote}": ${n.problem}. Fix: ${n.fix}`)
           .join("\n"),
     });
+    await logEvent("legal", `Legal bounce: ${result.lineNotes?.length ?? 0} issue(s) → back to writers' room`, { storyId, storyTitle: story.title, level: "warn" });
     console.log("  bounced → writers' room");
   }
 }
 
 // ---- Angle room -----------------------------------------------------------------
+
+// Consecutive desk-reply failures per story. A few ticks of transient retry,
+// then we surface the error into the thread so it stops spinning behind a
+// silent "thinking…".
+const angleFailures = new Map();
+const ANGLE_MAX_TRIES = 3;
 
 async function angleReply(storyId) {
   const detail = await client.query("pipeline:storyDetail", { storyId });
@@ -498,21 +612,44 @@ async function angleReply(storyId) {
   if (!last || last.role !== "liz") return;
   console.log(`Angle room: ${detail.story.title}`);
   const { docText } = await brainContext();
-  const reply = await runDeskText(
-    "angle-room",
-    [
-      docText,
-      "## The story under discussion",
-      JSON.stringify({ title: detail.story.title, job: detail.story.job, angle: detail.story.angle, summary: detail.story.summary }, null, 2),
-      "## Claims ledger (the receipts you argue from)",
-      JSON.stringify(detail.claims.map((c) => ({ text: c.text, classification: c.classification, citation: c.citation })), null, 2),
-      "## The discussion so far",
-      thread.map((m) => `${m.role === "liz" ? "LIZ" : "YOU"}: ${m.text}`).join("\n\n"),
-      "## Your reply",
-      "Respond to Liz's last message per the rules of the room.",
-    ].join("\n\n")
-  );
+  let reply;
+  try {
+    reply = await runDeskText(
+      "angle-room",
+      [
+        docText,
+        "## The story under discussion",
+        JSON.stringify({ title: detail.story.title, job: detail.story.job, angle: detail.story.angle, summary: detail.story.summary }, null, 2),
+        "## Claims ledger (the receipts you argue from)",
+        JSON.stringify(detail.claims.map((c) => ({ text: c.text, classification: c.classification, citation: c.citation })), null, 2),
+        "## The discussion so far",
+        thread.map((m) => `${m.role === "liz" ? "LIZ" : "YOU"}: ${m.text}`).join("\n\n"),
+        "## Your reply",
+        "Respond to Liz's last message per the rules of the room.",
+      ].join("\n\n")
+    );
+  } catch (err) {
+    const tries = (angleFailures.get(storyId) ?? 0) + 1;
+    console.error(`  angle reply failed (try ${tries}/${ANGLE_MAX_TRIES}): ${err.message}`);
+    if (tries < ANGLE_MAX_TRIES) {
+      angleFailures.set(storyId, tries); // likely transient — the next tick retries
+      return;
+    }
+    // Persistent failure: post it as a desk turn. That makes Liz's message no
+    // longer the latest, so the story drops out of pendingAngleReplies instead
+    // of retrying forever behind a silent "thinking…".
+    angleFailures.delete(storyId);
+    await client.mutation("design:addAngleMessage", {
+      storyId,
+      role: "desk",
+      text: `[the desk hit an error and couldn't reply: ${String(err.message).slice(0, 180)}] Send your last message again to retry.`,
+    });
+    await logEvent("angle", `Angle desk hit an error: ${String(err.message).slice(0, 120)}`, { storyId, storyTitle: detail.story.title, level: "warn" });
+    return;
+  }
+  angleFailures.delete(storyId);
   await client.mutation("design:addAngleMessage", { storyId, role: "desk", text: reply });
+  await logEvent("angle", `Angle desk replied`, { storyId, storyTitle: detail.story.title });
   console.log("  replied");
 }
 
@@ -531,57 +668,66 @@ const promptHasChartDirection = (text) =>
   /\b(forest plot|bar|chart|axis|confidence interval|effect size|p\s*=|meta-analysis|trial|rct)\b/i.test(text);
 
 const cleanVisualBrief = (text) => {
+  // Keep the actual subject; strip only the literal copy the writers' room wanted
+  // rendered AS text (quotes, title-card labels, citations, raw stats) — the image
+  // itself must carry no words. What survives should still describe a real scene.
   const clean = tidyPromptText(text)
     .replace(/\bSlide\s*\d+\s*[:,;-]?\s*/gi, "")
-    .replace(/\btitle card\b/gi, "background plate for editor-added title")
-    .replace(/\bhuge\s+['"][^'"]+['"][^,.;]*/gi, "large empty headline area")
-    .replace(/\b(sub-line|subtitle|caption)\s+['"][^'"]+['"][^,.;]*/gi, "secondary empty copy band")
-    .replace(/\bcitation[^,.;]*/gi, "small clear footer strip for editor-added citation")
-    .replace(/\bPMID\s*\d+\b/gi, "editor-added citation")
-    .replace(/\bp\s*=\s*[-\d.]+\b/gi, "editor-added statistic")
-    .replace(/['"][^'"]{2,}['"]/g, "editor-added overlay text")
+    .replace(/\btitle card\b/gi, "")
+    .replace(/\b(sub-?line|subtitle|caption|headline|lower third)\b\s*:?/gi, "")
+    .replace(/\bcitation[^,.;]*/gi, "")
+    .replace(/\bPMID\s*\d+\b/gi, "")
+    .replace(/\bp\s*=\s*[-\d.]+\b/gi, "")
+    .replace(/['"][^'"]+['"]/g, "")
+    .replace(/\s*[,;](\s*[,;])+/g, ", ")
     .replace(/\s+/g, " ")
     .trim();
-  return clean || "evidence-led visual background for the spoken beat";
+  return clean || "the subject of the spoken beat";
 };
 
-const visualModeForPrompt = (text) => {
-  const t = text.toLowerCase();
-  if (/\b(app|phone|screen recording|screenshot|search|url|product page)\b/.test(t)) return "app or browser proof plate";
-  if (/\b(label|bottle|capsule|tablet|powder|jar|product)\b/.test(t)) return "unbranded supplement product research plate";
-  if (promptHasChartDirection(text)) return "abstract evidence chart plate";
-  if (promptHasOverlayDirection(text)) return "typographic overlay background plate";
-  return "editorial evidence background plate";
-};
-
+// Deterministic FALLBACK only — the art-director desk writes the real prompts.
+// Leads with whatever concrete subject survives, then a short house-style tail.
 const promptFromNote = (visualNote, voLine) => {
-  const source = tidyPromptText(visualNote ?? voLine);
-  const cleaned = cleanVisualBrief(source);
-  const mode = visualModeForPrompt(source);
-  const needsReal = promptNeedsRealAsset(source);
-  const chartLine = promptHasChartDirection(source)
-    ? "If a chart is implied, use abstract unlabeled evidence shapes only: a clean line, dot, interval bar, or paper stack with no axes, digits, labels, or fake data."
-    : "";
-  const realAssetLine = needsReal
-    ? "If the beat needs a real screenshot, app screen, PubMed record, label, product page, or receipt, do not invent it; generate only a polished background plate or device frame where the real asset can be composited later."
-    : "Use generic unbranded objects only; never invent real brands, product labels, medical claims, citations, or UI screens.";
-
+  const subject = cleanVisualBrief(tidyPromptText(visualNote ?? voLine));
   return [
-    "Vertical 9:16 De-Influenced social visual, professional editorial background plate, high-impact first-frame composition.",
-    `Creative job: ${mode}; support the spoken beat without generating any words inside the image.`,
-    `Visual brief: ${cleaned}.`,
-    "Composition: one clear focal idea, strong foreground/background separation, generous clean negative space for editor-added headline, caption, numbers, and citation; keep the safe areas uncluttered for mobile cropping.",
-    "Look and lighting: premium documentary product-research photography, realistic desk or screen environment, soft directional light, crisp detail, restrained contrast, modern neutral palette with one sharp accent colour, not stock-photo glossy.",
-    chartLine,
-    realAssetLine,
-    "Strict negatives: no readable text, no letters, no numbers, no fake screenshots, no logos, no real brand names, no watermarks, no cartoon style, no influencer glamour, no fearmongering medical imagery.",
-  ].filter(Boolean).join(" ");
+    `Editorial documentary photograph for a De-Influenced social post: ${subject}.`,
+    "Premium product-research look: a real desk or counter scene, soft directional light, one clear focal subject, modern neutral palette with a single sharp accent colour, generous clean negative space for editor-added text.",
+    "No text, letters, numbers, logos, brand names, fake screenshots, charts with data, watermarks, or cartoon style.",
+  ].join(" ");
 };
+
+// The real prompt writer: one art-director desk call authors a concrete, on-brand
+// image prompt per beat. Falls back to promptFromNote per beat if the desk fails.
+async function authorSlidePrompts(story, beats) {
+  let result = null;
+  try {
+    const { docText } = await brainContext();
+    const prompt = [
+      docText,
+      "## The post",
+      JSON.stringify({ title: story.title, angle: story.angle, summary: story.summary, platform: story.platform, format: story.format }, null, 2),
+      "## The beats (author one image prompt per beat, in order)",
+      JSON.stringify(beats.map((b, i) => ({ order: i, kind: b.kind, spokenLine: b.voLine, visualNote: b.visualNote ?? null })), null, 2),
+      "## Your output",
+      "Author one image-generation prompt per beat per the rules of the art-director desk. Return JSON only.",
+    ].join("\n\n");
+    result = await runDesk("art-director", prompt, { maxTurns: 3 });
+  } catch (err) {
+    console.error(`  art director failed — using fallback prompts: ${err.message}`);
+  }
+  const byOrder = new Map((result?.prompts ?? []).map((p) => [Number(p.order), tidyPromptText(p.prompt)]));
+  return beats.map((b, i) => {
+    const authored = byOrder.get(i);
+    return authored && authored.length > 20 ? authored : promptFromNote(b.visualNote, b.voLine);
+  });
+}
 
 async function seedDesign(storyId) {
   const detail = await client.query("pipeline:storyDetail", { storyId });
   const script = detail.scripts.find((s) => s.status !== "superseded");
   if (!script) return;
+  const beats = script.sections.map((s) => ({ kind: s.kind, voLine: s.text, visualNote: s.visualNote ?? null }));
+  const prompts = await authorSlidePrompts(detail.story, beats);
   await client.mutation("design:seedSlides", {
     storyId,
     slides: script.sections.map((s, i) => ({
@@ -589,10 +735,32 @@ async function seedDesign(storyId) {
       kind: s.kind,
       voLine: s.text,
       visualNote: s.visualNote ?? undefined,
-      prompt: promptFromNote(s.visualNote, s.text),
+      prompt: prompts[i],
     })),
   });
+  await logEvent("design", `Design studio ready — ${script.sections.length} slides, prompts by art director`, { storyId, storyTitle: detail.story.title });
   console.log(`Design studio seeded: ${detail.story.title} (${script.sections.length} rows)`);
+}
+
+// Re-author all image prompts for an existing design story (the "Rewrite prompts"
+// button enqueues this). Reuses the art director, then clears the flag.
+async function rewriteDesignPrompts(storyId) {
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  const board = await client.query("design:board", { storyId });
+  const slides = board?.slides ?? [];
+  if (!slides.length) {
+    await client.mutation("design:clearPromptRewrite", { storyId });
+    return;
+  }
+  console.log(`Rewriting prompts: ${detail.story.title} (${slides.length} slides)`);
+  const beats = slides.map((s) => ({ kind: s.kind, voLine: s.voLine, visualNote: s.visualNote ?? null }));
+  const prompts = await authorSlidePrompts(detail.story, beats);
+  for (let i = 0; i < slides.length; i++) {
+    await client.mutation("design:updatePrompt", { slideId: slides[i]._id, prompt: prompts[i] });
+  }
+  await client.mutation("design:clearPromptRewrite", { storyId });
+  await logEvent("design", `Art director rewrote ${slides.length} image prompt(s)`, { storyId, storyTitle: detail.story.title });
+  console.log("  prompts rewritten");
 }
 
 async function handleGenRequest(requestId) {
@@ -621,6 +789,7 @@ async function handleGenRequest(requestId) {
       costUsd,
       candidates: files.map((f) => ({ filePath: f, prompt: req.prompt })),
     });
+    await logEvent("gen", `Generated ${files.length} image candidate(s) [${req.provider}/${req.model}]`, { storyId: req.storyId, storyTitle: story?.story.title });
     console.log(`  ${files.length} candidate(s) on the board`);
   } catch (err) {
     await client.mutation("design:finishGenRequest", {
@@ -629,6 +798,7 @@ async function handleGenRequest(requestId) {
       error: String(err.message).slice(0, 400),
       candidates: [],
     });
+    await logEvent("gen", `Generation failed: ${String(err.message).slice(0, 120)}`, { storyId: req.storyId, storyTitle: story?.story.title, level: "warn" });
     console.error(`  generation failed: ${err.message.slice(0, 200)}`);
   }
 }
@@ -664,7 +834,7 @@ async function produceStory(storyId) {
   let agentNotes = "";
 
   // design-studio path: Liz already picked the winners — use them, generate nothing
-  const designAssets = detail.assets.filter((a) => a.kind === "image");
+  const designAssets = detail.assets.filter((a) => a.kind === "image" && !assetMeta(a).carouselSlide);
   if (designAssets.length) {
     for (const a of designAssets) {
       try {
@@ -718,7 +888,58 @@ async function produceStory(storyId) {
     console.log(`  ${unwiredNote}`);
   }
 
-  // 2. transcription, alignment, captions, assembly — only when a VO exists
+  // 2a. static carousel rendering — deterministic PNG deck, no VO required
+  if (isCarouselFormat(story.format)) {
+    const renderFormat = carouselRenderFormat(story);
+    console.log(`  rendering ${renderFormat} carousel deck...`);
+    const deck = await renderCarouselDeck({
+      story,
+      sections: script.sections,
+      sectionImages,
+      outDir: join(outDir, "carousel"),
+      format: renderFormat,
+    });
+    const renderedAt = Date.now();
+    for (const [sectionIndex, filePath] of deck.slidePaths.entries()) {
+      await client.mutation("production:addAsset", {
+        storyId,
+        kind: "image",
+        filePath,
+        lane: `carousel:${renderFormat}`,
+        meta: JSON.stringify({
+          sectionIndex,
+          carouselSlide: true,
+          carouselFormat: renderFormat,
+          width: deck.width,
+          height: deck.height,
+          renderedAt,
+        }),
+      });
+    }
+    if (deck.contactSheet) {
+      await client.mutation("production:addAsset", {
+        storyId,
+        kind: "other",
+        filePath: deck.contactSheet,
+        lane: `carousel:${renderFormat}`,
+        meta: JSON.stringify({ carouselContactSheet: true, carouselFormat: renderFormat, renderedAt }),
+      });
+    }
+    await client.mutation("pipeline:transition", {
+      storyId,
+      to: "gate2",
+      note: [
+        `carousel deck rendered: ${deck.slidePaths.length} ${deck.label} PNG slides + contact sheet`,
+        unwiredNote,
+        agentNotes,
+      ].filter(Boolean).join("\n"),
+    });
+    console.log(`  carousel: ${deck.slidePaths.length} slides (${deck.label})`);
+    console.log("  -> Gate 2");
+    return;
+  }
+
+  // 2b. transcription, alignment, captions, assembly — only when a VO exists
   const vo = detail.recordings.find((r) => r.kind === "vo" && r.filePath);
   let masterNote = "no VO recording — image package only, no assembly";
   if (vo && Object.keys(sectionImages).length) {
@@ -777,6 +998,7 @@ async function packageStory(storyId) {
   );
 
   const master = detail.assets.find((a) => a.kind === "master");
+  const carouselSlides = currentCarouselSlides(detail.assets);
   const manifest = [
     `# ${story.title}`,
     "",
@@ -794,6 +1016,9 @@ async function packageStory(storyId) {
     "",
     result.coverText ?? "",
     result.postingNotes ? `\n## Posting notes\n\n${result.postingNotes}` : "",
+    carouselSlides.length
+      ? `\n## Carousel slides\n\n${carouselSlides.map((a, i) => `${i + 1}. ${a.filePath}`).join("\n")}`
+      : "",
     "",
     "## Files",
     "",
@@ -815,7 +1040,7 @@ async function packageStory(storyId) {
     scheduleIntent: "manual_now",
   });
 
-  // hand-delivery to Telegram: master + caption, ready to download and post
+  // hand-delivery to Telegram: video master or carousel PNGs, ready to download and post
   const token = deliveryToken();
   let deliveryNote = "package written to media-vault";
   if (token && master) {
@@ -840,9 +1065,39 @@ async function packageStory(storyId) {
     } catch (err) {
       deliveryNote = `telegram delivery failed: ${err.message}`;
     }
+  } else if (token && carouselSlides.length) {
+    try {
+      const form = new FormData();
+      form.append("chat_id", settings.telegram_delivery_chat_id ?? settings.telegram_chat_id);
+      const thread = settings.telegram_delivery_thread_id;
+      if (thread) form.append("message_thread_id", thread);
+      const slidesToSend = carouselSlides.slice(0, 10);
+      const media = slidesToSend.map((asset, i) => ({
+        type: "photo",
+        media: `attach://slide${i}`,
+        ...(i === 0
+          ? { caption: `${story.title}\n\n${result.caption}\n\n${(result.hashtags ?? []).join(" ")}`.slice(0, 1000) }
+          : {}),
+      }));
+      form.append("media", JSON.stringify(media));
+      for (const [i, asset] of slidesToSend.entries()) {
+        form.append(`slide${i}`, await openAsBlob(asset.filePath), basename(asset.filePath));
+      }
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      deliveryNote = data.ok
+        ? `carousel package delivered to Telegram (${slidesToSend.length} PNGs)`
+        : `telegram delivery failed: ${data.description}`;
+    } catch (err) {
+      deliveryNote = `telegram delivery failed: ${err.message}`;
+    }
   }
   console.log(`  ${deliveryNote}`);
   await client.mutation("pipeline:transition", { storyId, to: "ready_to_post", note: deliveryNote });
+  await logEvent("publish", `Packaged → ready to post`, { storyId });
 }
 
 // ---- Main loop --------------------------------------------------------------------
@@ -850,51 +1105,64 @@ async function packageStory(storyId) {
 const IDLE_MS = 5_000; // design studio + angle room are interactive — poll snappily
 
 async function tick() {
-  let work;
+  // Phase 1: connectivity-sensitive reads decide what to do next, in priority
+  // order. A throw here really is the backend being down or restarting — back
+  // off and retry. No desk/LLM work runs inside this block.
+  let action = null;
   try {
-    // 1. generation requests first — Liz is sitting in the design studio waiting
     const genReq = await client.query("design:nextGenRequest", {});
-    if (genReq) {
-      await handleGenRequest(genReq._id);
-      return true;
+    if (genReq) action = { kind: "gen", id: genReq._id }; // Liz is in the design studio waiting
+    if (!action) {
+      const pendingAngles = await client.query("design:pendingAngleReplies", {});
+      if (pendingAngles.length) action = { kind: "angle", id: pendingAngles[0] }; // she's mid-conversation
     }
-    // 2. angle-room replies — she's mid-conversation
-    const pendingAngles = await client.query("design:pendingAngleReplies", {});
-    if (pendingAngles.length) {
-      await angleReply(pendingAngles[0]);
-      return true;
-    }
-    // 3. design stories that have no storyboard rows yet
-    const board = await client.query("pipeline:board", {});
-    for (const s of board) {
-      if (s.status === "design") {
+    if (!action) {
+      const board = await client.query("pipeline:board", {});
+      for (const s of board) {
+        if (s.status !== "design") continue;
         const d = await client.query("design:board", { storyId: s._id });
-        if (!d.slides.length) {
-          await seedDesign(s._id);
-          return true;
-        }
+        if (!d.slides.length) { action = { kind: "design", id: s._id }; break; } // no storyboard rows yet
       }
     }
-    // 4. desk work
-    work = await client.query("pipeline:nextWork", {});
+    if (!action) {
+      const rewriteId = await client.query("design:nextPromptRewrite", {});
+      if (rewriteId) action = { kind: "rewrite", id: rewriteId }; // she asked the art director to redo prompts
+    }
+    if (!action) {
+      const work = await client.query("pipeline:nextWork", {});
+      if (work) action = { kind: "work", work };
+    }
   } catch (err) {
     // backend down or restarting — wait it out rather than crashing
     console.error(`backend unreachable (${err.message.slice(0, 80)}) — retrying in 15s`);
     await new Promise((r) => setTimeout(r, 15_000));
     return false;
   }
-  if (!work) return false;
+  if (!action) return false;
+
+  // Phase 2: do the work. A throw here is a desk / LLM / generation failure —
+  // NOT the backend — so it is labeled and handled as such rather than being
+  // mislabeled as "backend unreachable" and silently retried forever.
+  // (handleGenRequest and angleReply already record their own failures; this
+  // catch is the backstop for the desk work and design seeding.)
   try {
-    if (work.type === "tip") await processTip(work.id);
-    else if (work.desk === "drafting") await draftStory(work.id);
-    else if (work.desk === "legal_review") await legalReview(work.id);
-    else if (work.desk === "production") await produceStory(work.id);
-    else if (work.desk === "packaging") await packageStory(work.id);
+    if (action.kind === "gen") await handleGenRequest(action.id);
+    else if (action.kind === "angle") await angleReply(action.id);
+    else if (action.kind === "design") await seedDesign(action.id);
+    else if (action.kind === "rewrite") await rewriteDesignPrompts(action.id);
+    else {
+      const { work } = action;
+      if (work.type === "tip") await processTip(work.id);
+      else if (work.desk === "drafting") await draftStory(work.id);
+      else if (work.desk === "legal_review") await legalReview(work.id);
+      else if (work.desk === "production") await produceStory(work.id);
+      else if (work.desk === "packaging") await packageStory(work.id);
+    }
   } catch (err) {
-    console.error(`work item failed: ${err.message}`);
-    if (work.type === "story") {
+    console.error(`work item failed (${action.kind}): ${err.message}`);
+    if (action.kind === "work" && action.work.type === "story") {
       await client
-        .mutation("pipeline:releaseStory", { storyId: work.id })
+        .mutation("pipeline:releaseStory", { storyId: action.work.id })
         .catch(() => {});
     }
     return false;
