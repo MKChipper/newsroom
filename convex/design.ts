@@ -917,6 +917,41 @@ export const nextPromptRewrite = query({
   },
 });
 
+// ---- CapCut export -------------------------------------------------------------
+
+export const queueCapcutExport = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    await ctx.db.patch(storyId, { capcutExportAt: Date.now() });
+  },
+});
+
+export const clearCapcutExport = mutation({
+  args: { storyId: v.id("stories") },
+  handler: async (ctx, { storyId }) => {
+    await ctx.db.patch(storyId, { capcutExportAt: undefined });
+  },
+});
+
+export const setCapcutPath = mutation({
+  args: { storyId: v.id("stories"), path: v.string() },
+  handler: async (ctx, { storyId, path }) => {
+    await ctx.db.patch(storyId, { capcutPath: path, capcutExportAt: undefined });
+  },
+});
+
+// The runner polls this; returns any story whose CapCut package was requested.
+export const nextCapcutExport = query({
+  args: {},
+  handler: async (ctx) => {
+    const stories = await ctx.db.query("stories").collect();
+    const waiting = stories
+      .filter((s) => s.capcutExportAt)
+      .sort((a, b) => (a.capcutExportAt ?? 0) - (b.capcutExportAt ?? 0));
+    return waiting[0]?._id ?? null;
+  },
+});
+
 export const selectCandidate = mutation({
   args: {
     slideId: v.id("designSlides"),

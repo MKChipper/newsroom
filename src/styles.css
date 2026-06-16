@@ -483,6 +483,9 @@ label select {
 .asset-who-done { background: var(--green-soft); color: var(--green); border: 1px solid #bfe6d3; }
 .mini-button.is-busy { opacity: 0.7; }
 
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+.capcut-result { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 4px; }
+
 /* ---- Newsroom wire ---- */
 .wire {
   max-width: 880px;

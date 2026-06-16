@@ -11,6 +11,7 @@ const MIME: Record<string, string> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
   ".srt": "text/plain",
+  ".txt": "text/plain",
   ".md": "text/markdown",
 };
 

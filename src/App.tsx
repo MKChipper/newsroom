@@ -528,6 +528,7 @@ function StoryStudioLoaded({ storyId }: { storyId: Id<"stories"> }) {
             assetRequests={(data as any).assetRequests ?? []}
           />
           <AssetRequestPanel requests={(data as any).assetRequests ?? []} attachFiles={attachRequestFiles} updateAsset={updateAsset} />
+          <CapcutPanel storyId={storyId} story={story} />
           <ManifestPanel runs={(data as any).runs ?? []} estTotal={estTotal} />
           <ApprovalPanel
             story={story}
@@ -970,6 +971,32 @@ function AssetRequestPanel({ requests, attachFiles, updateAsset }: any) {
           </div>
         );
       })}
+    </section>
+  );
+}
+
+function CapcutPanel({ storyId, story }: { storyId: Id<"stories">; story: any }) {
+  const queueExport = useMutation(api.design.queueCapcutExport);
+  const building = Boolean(story.capcutExportAt);
+  const path: string | undefined = story.capcutPath;
+  const orderUrl = path ? mediaUrl(`${path}/ORDER.txt`) : "";
+  return (
+    <section className="surface">
+      <h3>CapCut package</h3>
+      <p className="muted">
+        One folder you drag into CapCut: your screenshots, AI plates, the VO script,
+        captions, and a beat-by-beat running order.
+      </p>
+      <button className="primary wide" disabled={building} onClick={() => queueExport({ storyId })}>
+        {building ? "Building…" : path ? "Rebuild CapCut package" : "Build CapCut package"}
+      </button>
+      {path && !building && (
+        <div className="capcut-result">
+          {orderUrl && <a href={orderUrl} target="_blank" rel="noreferrer">Open running order ↗</a>}
+          <p className="muted mono">{path}</p>
+        </div>
+      )}
+      <p className="muted">Drop screenshots here: <span className="mono">media-vault/{story.slug}/design/uploads/</span></p>
     </section>
   );
 }

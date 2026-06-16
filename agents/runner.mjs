@@ -19,6 +19,7 @@ import {
   transcribe, alignSections, writeSrtFile, assemble, probeDuration,
 } from "./production.mjs";
 import { renderCarouselDeck } from "./compositors/carousel-deck.mjs";
+import { exportCapcut } from "./export-capcut.mjs";
 import * as gemini from "./providers/gemini.mjs";
 import * as fal from "./providers/fal.mjs";
 import * as higgsfield from "./providers/higgsfield.mjs";
@@ -763,6 +764,21 @@ async function rewriteDesignPrompts(storyId) {
   console.log("  prompts rewritten");
 }
 
+// Build the CapCut package folder (deterministic file assembly via export-capcut).
+async function runCapcutExport(storyId) {
+  const detail = await client.query("pipeline:storyDetail", { storyId });
+  try {
+    const r = await exportCapcut(client, storyId);
+    await client.mutation("design:setCapcutPath", { storyId, path: r.outDir });
+    await logEvent("publish", `CapCut package built — ${r.screenshots} screenshots, ${r.plates} plates, ${r.beats} beats`, { storyId, storyTitle: detail?.story?.title });
+    console.log(`CapCut package: ${r.outDir}`);
+  } catch (err) {
+    await client.mutation("design:clearCapcutExport", { storyId });
+    await logEvent("publish", `CapCut export failed: ${String(err.message).slice(0, 100)}`, { storyId, storyTitle: detail?.story?.title, level: "warn" });
+    console.error(`  capcut export failed: ${err.message}`);
+  }
+}
+
 async function handleGenRequest(requestId) {
   const req = await client.mutation("design:claimGenRequest", { requestId });
   if (!req) return;
@@ -1129,6 +1145,10 @@ async function tick() {
       if (rewriteId) action = { kind: "rewrite", id: rewriteId }; // she asked the art director to redo prompts
     }
     if (!action) {
+      const capcutId = await client.query("design:nextCapcutExport", {});
+      if (capcutId) action = { kind: "capcut", id: capcutId }; // she clicked Build CapCut package
+    }
+    if (!action) {
       const work = await client.query("pipeline:nextWork", {});
       if (work) action = { kind: "work", work };
     }
@@ -1150,6 +1170,7 @@ async function tick() {
     else if (action.kind === "angle") await angleReply(action.id);
     else if (action.kind === "design") await seedDesign(action.id);
     else if (action.kind === "rewrite") await rewriteDesignPrompts(action.id);
+    else if (action.kind === "capcut") await runCapcutExport(action.id);
     else {
       const { work } = action;
       if (work.type === "tip") await processTip(work.id);

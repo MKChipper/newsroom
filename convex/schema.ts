@@ -102,6 +102,9 @@ export default defineSchema({
     // set at angle-lock: the runner's producer must (re)build the brief from the
     // angle-room conversation before the writers' room drafts.
     producerPending: v.optional(v.boolean()),
+    // "Build CapCut package" button: trigger timestamp + the folder the runner wrote.
+    capcutExportAt: v.optional(v.number()),
+    capcutPath: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_status", ["status"])
