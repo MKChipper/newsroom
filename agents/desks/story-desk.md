@@ -61,6 +61,36 @@ Good examples:
 Do not use this route when the post would only show the logo at the end. The
 app must resolve the pain point on screen.
 
+## Dominant carousel routes
+
+When a story needs receipts, a repeatable buyer check, or a saveable explainer,
+actively consider a carousel before escalating to a heavier video edit.
+
+Use `postType: "gold-standard evidence carousel"` for Instagram when the post
+can teach one reusable check in 5-7 slides. This is the dominant Instagram
+carousel shape:
+
+> buyer pain -> market mistake -> one check -> receipt/example -> app or buyer
+> behaviour -> save/comment CTA
+
+Visual treatment: polished De-Influenced navy, parchment, orange, and white;
+one idea per slide; receipt crops in clean white cards; slide 1 under 10 words;
+slide 2 creates the reason to swipe. Format: `ig_carousel`.
+
+Use `postType: "TikTok proof carousel"` when the same idea should work as
+TikTok Photo Mode. This is simpler than the Instagram deck:
+
+> hook image -> one check -> proof screenshot/card -> what it means -> what to
+> paste/check before buying
+
+Visual treatment: full-screen 9:16, real screenshots/images behind when
+available, dark readable overlay, one short text idea per slide, minimal
+decoration. Format: `tiktok_carousel`.
+
+Do not offer TikTok proof carousel when the proof depends on dense paper detail
+that will not read under TikTok UI overlays. In that case, keep TikTok to one
+fast lane check and make the fuller carousel for Instagram.
+
 ## Scoring (1-5 each)
 
 - `hook` — is there a genuine curiosity gap a scroller can feel in one line?
@@ -110,7 +140,7 @@ Return ONLY a JSON object:
       "angle": "one-line description of the editorial angle",
       "summary": "3-4 sentences: the story, the receipt, why now",
       "platform": "tiktok" | "instagram" | null,
-      "format": "tiktok_video" | "ig_reel" | "ig_carousel" | "meta_ad" | null,
+      "format": "tiktok_video" | "tiktok_carousel" | "ig_reel" | "ig_carousel" | "meta_ad" | null,
       "score": { "hook": 1, "evidence": 1, "effort": 1, "risk": 1, "total": 1 },
       "claimTexts": ["claims from the tip this story rests on, verbatim"],
       "creativeBrief": {
@@ -121,7 +151,7 @@ Return ONLY a JSON object:
             "title": "short working label",
             "angle": "one-line editorial spine for this route",
             "platform": "tiktok" | "instagram" | "linkedin" | "meta",
-            "format": "tiktok_video" | "ig_reel" | "ig_carousel" | "static" | "meta_ad",
+            "format": "tiktok_video" | "tiktok_carousel" | "ig_reel" | "ig_carousel" | "static" | "meta_ad",
             "tier": 1 | 2 | 3 | 4,
             "postType": "app resolver reel | receipt-led reel | informational carousel | single-frame comparison | ...",
             "structure": "hook + beat plan, slide plan, or frame plan",

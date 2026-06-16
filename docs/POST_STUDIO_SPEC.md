@@ -67,7 +67,8 @@ Fields:
 - `title`
 - `angle`
 - `platform`: `tiktok`, `instagram`, `linkedin`, `meta`, etc.
-- `format`: `tiktok_video`, `ig_reel`, `ig_carousel`, `static`, `meta_ad`, etc.
+- `format`: `tiktok_video`, `tiktok_carousel`, `ig_reel`, `ig_carousel`,
+  `static`, `meta_ad`, etc.
 - `postType`: human-readable format family, e.g. "receipt-led reel",
   "informational carousel", "single-frame comparison".
 - `structure`: what the post is made from, e.g. "hook VO + 3 receipt beats +

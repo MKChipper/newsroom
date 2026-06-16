@@ -110,6 +110,7 @@ export const seedDefaults = mutation({
       // these as hard budgets — copy gets cut to fit, voice never sped up.
       format_targets: JSON.stringify({
         tiktok_video: 32,
+        tiktok_carousel: 0,
         ig_reel: 30,
         ig_carousel: 0,
         meta_ad: 20,

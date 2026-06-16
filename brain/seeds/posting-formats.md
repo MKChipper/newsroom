@@ -222,22 +222,50 @@ annotations.
 
 ## Carousels
 
-Use carousels when the user needs to swipe through receipts or compare several
-claims.
+Use carousels when the user needs to swipe through receipts, learn one
+repeatable buyer check, or save a practical explanation.
+
+Dominant route:
+
+- `gold-standard evidence carousel` for Instagram
+- `TikTok proof carousel` for TikTok Photo Mode
+
+The shared spine is:
+
+> buyer pain -> market mistake -> one check -> receipt/example -> meaning ->
+> app or buyer behaviour
 
 Good uses:
 
 - claim -> what the paper says -> what the dose was -> what the product says
 - ingredient evidence ladder
 - "what this study does and does not prove"
-- side-by-side product audit
+- product + dose + claim check
+- third-party tested / COA confusion
+- side-by-side product audit only when both sides are readable
 
-Preferred craft:
+Instagram carousel craft:
 
+- format `ig_carousel`, 1080x1350, 4:5
+- 5-7 slides
+- polished navy/parchment/orange visual system
 - one idea per slide
-- short slide text
-- visible evidence source
-- final slide with the practical takeaway
+- slide 1 is 10 words or fewer
+- slide 2 creates the reason to swipe
+- visible evidence source on evidence slides
+- final slide with the practical takeaway, save prompt, or app CTA
+
+TikTok carousel craft:
+
+- format `tiktok_carousel`, 1080x1920, 9:16
+- 5-8 slides
+- simpler than Instagram: images or screenshots behind, dark readable overlay,
+  one short text idea
+- avoid tiny citations or dense paper detail in the main reading area
+- keep key text away from the bottom and right UI overlays
+
+Do not use carousels as a dumping ground for a whole investigation. If the
+deck needs four separate checks, split it into four posts.
 
 ## Format mix
 

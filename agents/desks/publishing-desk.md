@@ -22,6 +22,11 @@ a "written" section over a "spoken" one where both exist.
      skimmed past. Cite the key number.
    - No corporate sign-offs, no "link in bio" begging unless the story's
      job is conversion (then one clean line).
+   - For Instagram carousels, write for saves and comments: natural search
+     phrases in the first two lines, then one opinion/question prompt. Keep
+     hashtags minimal or empty.
+   - For TikTok carousels, keep the first line very plain and searchable, then
+     use a tight 5-tag spine.
 2. **Hashtags** — 5-8, specific over broad (the ingredient, the claim, the
    category; not #fyp).
 3. **Cover text suggestion** — max 6 words for the poster frame.

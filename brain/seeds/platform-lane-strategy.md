@@ -124,6 +124,44 @@ Gold-standard example:
   -> product.
 - CTA: "Paste the claim into De-Influenced before you buy."
 
+### Tier 2B: Dominant carousel deck
+
+Use when:
+
+- the idea is best understood by swiping through receipts
+- the post teaches one repeatable buyer check
+- the topic is useful enough to save or share
+- the production should stay lower-friction than a full receipt video
+
+Default Instagram version:
+
+- Platform: Instagram
+- Format: `ig_carousel`
+- Post type: `gold-standard evidence carousel`
+- Canvas: 1080x1350, 4:5
+- Length: 5-7 slides
+- Structure: buyer pain -> market mistake -> one check -> receipt/example ->
+  meaning -> behaviour/CTA
+- Visual: polished navy/parchment/orange system, real receipts in clean cards
+
+Default TikTok version:
+
+- Platform: TikTok
+- Format: `tiktok_carousel`
+- Post type: `TikTok proof carousel`
+- Canvas: 1080x1920, 9:16
+- Length: 5-8 slides
+- Structure: hook image -> one check -> proof screenshot/card -> what it means
+  -> what to paste/check before buying
+- Visual: simpler, screenshot/image-backed, dark readable overlay, one short
+  text idea per slide
+
+Escalation rule:
+
+Do not make the TikTok proof carousel as polished or dense as Instagram. If the
+receipt needs dense context, make TikTok a fast lane check and send the fuller
+saveable deck to Instagram.
+
 ### Tier 2A: App resolver reel
 
 Use when:

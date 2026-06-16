@@ -45,6 +45,31 @@ Write for the mouth, not the page: short sentences, natural contractions are
 fine in VO scripts (a human reads them, not an image model), and mark breath
 points with a line break between sections.
 
+## Static carousel drafting
+
+When the timing prompt says the story is a static format, write slide copy, not
+a spoken script.
+
+- Return one `sections` item per slide, in order.
+- Use `kind` values that describe the slide job: `hook`, `content`,
+  `evidence`, `payoff`, or `cta`.
+- Put the slide headline as the first line of `text`. Keep slide 1 to 10 words
+  or fewer.
+- Put optional body copy after a line break in the same `text` field. Keep body
+  copy to 1-3 short sentences.
+- Slide 2 must create the reason to swipe: name the mistake, contradiction, or
+  missing check.
+- Evidence slides need the citation or source cue in `visualNote` using
+  `source: ...` so the renderer can add a small footnote.
+- If a real screenshot, product page, label, app screen, PubMed page, or COA is
+  needed, say so in `visualNote`; never ask an image model to invent it.
+- Set `needsRecording` to `false`, `recordingBriefs` to `[]`, and usually
+  `generationPlan` to `[]`. The deterministic carousel renderer will make the
+  branded PNG slides from the copy. Only include a generation run if the route
+  genuinely needs optional background plates.
+- Instagram carousels should be 5-7 slides by default. TikTok proof carousels
+  should be 5-8 slides and much simpler: one short overlay idea per slide.
+
 ## Structure
 
 Produce sections in order. Every section carries a `visualNote` — one line
