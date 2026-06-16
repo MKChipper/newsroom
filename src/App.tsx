@@ -461,13 +461,15 @@ function StoryStudioLoaded({ storyId }: { storyId: Id<"stories"> }) {
     .filter((r: any) => r.status !== "failed")
     .reduce((n: number, r: any) => n + r.estCostUsd, 0);
 
-  const attachRequestFiles = async (requestId: Id<"assetRequests">, files: FileList | null) => {
-    if (!files?.length) return;
-    const file = files[0];
+  const attachRequestFiles = async (requestId: Id<"assetRequests">, files: File[] | FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!story.slug) throw new Error("story has no slug");
     const res = await fetch(
       `/media-upload?slug=${encodeURIComponent(story.slug)}&name=${encodeURIComponent(file.name)}`,
       { method: "POST", body: file }
     );
+    if (!res.ok) throw new Error(`upload failed (HTTP ${res.status})`);
     const { path } = await res.json();
     await updateAsset({ requestId, filePath: path, status: "supplied" });
   };
@@ -901,6 +903,9 @@ function RoutePanel({ storyId, routes, selectedRoute, onSelect }: any) {
 }
 
 const assetOwnerChip = (req: any): { text: string; tone: string } => {
+  // Once you've supplied it, the app no longer needs to do anything — show that.
+  if (req.status === "supplied") return { text: "✓ You attached this", tone: "done" };
+  if (req.status === "selected") return { text: "✓ Using your file", tone: "done" };
   if (req.kind === "voice") return { text: "🎙️ You record (CapCut)", tone: "you" };
   if (req.owner === "agent") return { text: "🤖 App makes this", tone: "agent" };
   if (req.kind === "screenshot") return req.canAgentAttempt
@@ -913,20 +918,40 @@ function AssetRequestPanel({ requests, attachFiles, updateAsset }: any) {
   const open = requests.filter((r: any) => r.status !== "waived");
   const youCount = open.filter((r: any) => r.owner === "liz").length;
   const agentCount = open.filter((r: any) => r.owner === "agent").length;
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+
+  const onPick = async (requestId: string, fileList: FileList | null) => {
+    const files = fileList ? Array.from(fileList) : [];
+    if (!files.length) return;
+    setBusyId(requestId);
+    setErr("");
+    try {
+      await attachFiles(requestId, files);
+    } catch (e: any) {
+      setErr(`${e?.message ?? "attach failed"}`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <section className="surface">
       <h3>Assets</h3>
       {open.length === 0 && <p className="muted">No explicit asset requests.</p>}
       {open.length > 0 && <p className="muted">{youCount} from you · {agentCount} the app makes</p>}
+      {err && <p className="error">{err}</p>}
       {open.map((req: any) => {
         const chip = assetOwnerChip(req);
+        const busy = busyId === req._id;
+        const done = req.status === "supplied" || req.status === "selected";
         return (
           <div key={req._id} className="asset-row">
             <div>
               <strong>{req.label}</strong>
               <div className="asset-tags">
                 <span className={`pill asset-who-${chip.tone}`}>{chip.text}</span>
-                <span className="pill">{pretty(req.status)}</span>
+                {!done && <span className="pill">{pretty(req.status)}</span>}
               </div>
               <p>{req.instructions}</p>
               {req.sourceUrl && <a href={req.sourceUrl} target="_blank" rel="noreferrer">Source page ↗</a>}
@@ -934,12 +959,12 @@ function AssetRequestPanel({ requests, attachFiles, updateAsset }: any) {
             </div>
             <div className="asset-actions">
               {req.owner === "liz" && (
-                <label className="mini-button">
-                  Attach
-                  <input type="file" style={{ display: "none" }} onChange={(e: any) => { attachFiles(req._id, e.target.files); e.target.value = ""; }} />
+                <label className={`mini-button ${busy ? "is-busy" : ""}`}>
+                  {busy ? "Uploading…" : done ? "Replace" : "Attach"}
+                  <input type="file" disabled={busy} style={{ display: "none" }} onChange={(e: any) => onPick(req._id, e.target.files)} />
                 </label>
               )}
-              {req.status === "needed" && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "waived" })}>Waive</button>}
+              {!done && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "waived" })}>Waive</button>}
               {req.status === "supplied" && <button className="mini-button" onClick={() => updateAsset({ requestId: req._id, status: "selected" })}>Use</button>}
             </div>
           </div>

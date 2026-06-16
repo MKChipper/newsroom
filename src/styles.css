@@ -480,6 +480,8 @@ label select {
 .asset-who-you { background: var(--blue-soft); color: var(--blue); border: 1px solid #cfe0ff; }
 .asset-who-agent { background: var(--green-soft); color: var(--green); border: 1px solid #bfe6d3; }
 .asset-who-maybe { background: var(--amber-soft); color: var(--amber); border: 1px solid #f0dca0; }
+.asset-who-done { background: var(--green-soft); color: var(--green); border: 1px solid #bfe6d3; }
+.mini-button.is-busy { opacity: 0.7; }
 
 /* ---- Newsroom wire ---- */
 .wire {
