@@ -18,6 +18,7 @@ const STAFF = [
   { name: "desks ", script: "runner.mjs" },
   { name: "gates ", script: "telegram-gates.mjs", optional: !telegramToken() },
   { name: "inbox ", script: "inbox-watcher.mjs" },
+  { name: "tips  ", script: "tips-inbox.mjs" },
 ];
 
 let shuttingDown = false;

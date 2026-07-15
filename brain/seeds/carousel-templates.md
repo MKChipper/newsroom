@@ -6,6 +6,25 @@ This is the locked carousel system for De-Influenced. The goal is repeatable
 slide decks that feel like the menopause gold-standard template: buyer-sided,
 evidence-led, polished on Instagram, simpler and more native on TikTok.
 
+## Paid Meta ad exception
+
+Paid Instagram and Facebook ads are governed by `meta-ad-gold-standard`, not
+this organic carousel template.
+
+Use this file for organic/saveable evidence carousels and TikTok proof
+carousels. Use `meta-ad-gold-standard` before creating paid Meta ads.
+
+Paid Meta default:
+
+> recognition -> evidence gap -> app resolution
+
+Paid Meta carousel constraints:
+
+- `1080x1350`, `4:5`.
+- Maximum 3 slides.
+- Offer-aware and landing-page matched.
+- The app/check must be the resolution, not a caption-only afterthought.
+
 ## External format check
 
 Checked 2026-06-14.

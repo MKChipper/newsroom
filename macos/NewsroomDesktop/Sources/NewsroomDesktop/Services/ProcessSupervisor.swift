@@ -38,7 +38,8 @@ final class ProcessSupervisor {
       "node agents/staff.mjs",
       "agents/runner.mjs",
       "agents/telegram-gates.mjs",
-      "agents/inbox-watcher.mjs"
+      "agents/inbox-watcher.mjs",
+      "agents/tips-inbox.mjs"
     ]
     for pattern in patterns {
       _ = await Shell.run("pkill -f '\(pattern)' >/dev/null 2>&1 || true", cwd: config.repoPath)
