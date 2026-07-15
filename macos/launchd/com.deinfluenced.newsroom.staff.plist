@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Newsroom staff workers, always-on, pointed at production Convex.
+
+  This runs `node agents/staff.mjs` (desks + telegram gates + recordings inbox +
+  tips inbox) as a per-user launchd agent. It starts at login, restarts on crash,
+  and comes back after a reboot — so the desk that answers the angle-room chat is
+  no longer tied to a terminal, an app window, or a Claude session.
+
+  Auth: agents/env.mjs reads CLAUDE_CODE_OAUTH_TOKEN and the Convex/Telegram
+  tokens from the repo's .env.local, so this agent is self-contained. The
+  VITE_CONVEX_URL below overrides .env.local's local URL and points every worker
+  at production.
+
+  Install / manage with macos/launchd/install-staff-agent.sh.
+  Paths are absolute and specific to this machine (Liz's workstation).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deinfluenced.newsroom.staff</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/lizw/.local/bin/node</string>
+        <string>/Users/lizw/Developer/newsroom/agents/staff.mjs</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/lizw/Developer/newsroom</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VITE_CONVEX_URL</key>
+        <string>https://utmost-chipmunk-181.convex.cloud</string>
+        <key>PATH</key>
+        <string>/Users/lizw/.local/bin:/Users/lizw/.hermes/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/lizw/Library/Logs/newsroom-staff.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/lizw/Library/Logs/newsroom-staff.log</string>
+</dict>
+</plist>
