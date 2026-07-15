@@ -52,11 +52,20 @@ the measured duration shows next to the word-count estimate ("scratch read
 Gate 1 with a trim warning — so you never record a script that's too long.
 
 Then, in the dashboard:
-1. Settings → Seed defaults, then set real numbers in `price_table` and your
-   true `speech_wpm`.
-2. Brain → add your first docs. Templates live in `brain/seeds/`. The voice
-   corpus is the highest-leverage one.
-3. Tip line → file a tip. Watch the floor.
+1. More → Settings → Seed defaults, then set real numbers in `price_table`
+   and your true `speech_wpm`.
+2. More → Brand brain → add your first docs. Templates live in
+   `brain/seeds/`. The voice corpus is the highest-leverage one.
+3. "+ New idea" → file a tip. Watch the Posts board.
+
+The dashboard is one flow: Ideas → In the making → Your call → Ready → Live,
+with a "Needs you" shelf on top for everything waiting on you. Opening a post
+shows a nine-stop stepper (Idea → Concept → Copy → Visuals → Voice → Assembly
+→ Final check → Ready → Live) with only the current stage's workspace on
+screen; briefs, claims, costs, activity, and the CapCut package fold away in
+the Details rail. In the Visuals stage, type a note to the art director
+("warmer, leave clean space top-left for a text overlay") and it re-authors
+every image prompt to that direction.
 
 ## Layout
 
@@ -65,7 +74,7 @@ Then, in the dashboard:
 - `agents/runner.mjs` — polls Convex, runs desk prompt-packs through headless
   Claude Agent SDK sessions, writes structured results back
 - `agents/desks/*.md` — the editorial law of each desk
-- `src/` — React dashboard (the floor, tip line, recording desk, brain,
-  settings)
+- `src/` — React dashboard (Posts board + per-stage story studio in
+  `src/views/`, shared stage model in `src/lib.ts`)
 - `brain/seeds/` — templates for the docs you feed the brain
 - `docs/DECISIONS.md` — locked product decisions and build phases

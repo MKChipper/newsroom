@@ -99,6 +99,8 @@ export default defineSchema({
     lockedAt: v.optional(v.number()),
     // set when Liz asks the art director to re-author this story's image prompts
     promptsRewriteAt: v.optional(v.number()),
+    // optional direction from Liz for that rewrite ("warmer, leave space for text overlay")
+    promptsRewriteNote: v.optional(v.string()),
     // set at angle-lock: the runner's producer must (re)build the brief from the
     // angle-room conversation before the writers' room drafts.
     producerPending: v.optional(v.boolean()),

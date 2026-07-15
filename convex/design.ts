@@ -889,16 +889,19 @@ export const updatePrompt = mutation({
 // "Rewrite prompts" button: flag the story so the runner re-authors every slide's
 // image prompt with the art-director desk.
 export const queuePromptRewrite = mutation({
-  args: { storyId: v.id("stories") },
-  handler: async (ctx, { storyId }) => {
-    await ctx.db.patch(storyId, { promptsRewriteAt: Date.now() });
+  args: { storyId: v.id("stories"), note: v.optional(v.string()) },
+  handler: async (ctx, { storyId, note }) => {
+    await ctx.db.patch(storyId, {
+      promptsRewriteAt: Date.now(),
+      promptsRewriteNote: note?.trim() || undefined,
+    });
   },
 });
 
 export const clearPromptRewrite = mutation({
   args: { storyId: v.id("stories") },
   handler: async (ctx, { storyId }) => {
-    await ctx.db.patch(storyId, { promptsRewriteAt: undefined });
+    await ctx.db.patch(storyId, { promptsRewriteAt: undefined, promptsRewriteNote: undefined });
   },
 });
 

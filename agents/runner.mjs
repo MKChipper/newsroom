@@ -699,7 +699,7 @@ const promptFromNote = (visualNote, voLine) => {
 
 // The real prompt writer: one art-director desk call authors a concrete, on-brand
 // image prompt per beat. Falls back to promptFromNote per beat if the desk fails.
-async function authorSlidePrompts(story, beats) {
+async function authorSlidePrompts(story, beats, editorNote) {
   let result = null;
   try {
     const { docText } = await brainContext();
@@ -709,6 +709,9 @@ async function authorSlidePrompts(story, beats) {
       JSON.stringify({ title: story.title, angle: story.angle, summary: story.summary, platform: story.platform, format: story.format }, null, 2),
       "## The beats (author one image prompt per beat, in order)",
       JSON.stringify(beats.map((b, i) => ({ order: i, kind: b.kind, spokenLine: b.voLine, visualNote: b.visualNote ?? null })), null, 2),
+      ...(editorNote
+        ? ["## Editor direction (from Liz — must be honoured in every prompt)", editorNote]
+        : []),
       "## Your output",
       "Author one image-generation prompt per beat per the rules of the art-director desk. Return JSON only.",
     ].join("\n\n");
@@ -753,14 +756,17 @@ async function rewriteDesignPrompts(storyId) {
     await client.mutation("design:clearPromptRewrite", { storyId });
     return;
   }
-  console.log(`Rewriting prompts: ${detail.story.title} (${slides.length} slides)`);
+  const editorNote = detail.story.promptsRewriteNote;
+  console.log(`Rewriting prompts: ${detail.story.title} (${slides.length} slides)${editorNote ? ` — note: ${editorNote}` : ""}`);
   const beats = slides.map((s) => ({ kind: s.kind, voLine: s.voLine, visualNote: s.visualNote ?? null }));
-  const prompts = await authorSlidePrompts(detail.story, beats);
+  const prompts = await authorSlidePrompts(detail.story, beats, editorNote);
   for (let i = 0; i < slides.length; i++) {
     await client.mutation("design:updatePrompt", { slideId: slides[i]._id, prompt: prompts[i] });
   }
   await client.mutation("design:clearPromptRewrite", { storyId });
-  await logEvent("design", `Art director rewrote ${slides.length} image prompt(s)`, { storyId, storyTitle: detail.story.title });
+  await logEvent("design", editorNote
+    ? `Art director rewrote ${slides.length} prompt(s) to your note: "${editorNote.slice(0, 120)}"`
+    : `Art director rewrote ${slides.length} image prompt(s)`, { storyId, storyTitle: detail.story.title });
   console.log("  prompts rewritten");
 }
 
