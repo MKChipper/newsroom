@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Newsroom dashboard, always-on, pointed at production Convex.
+
+  Runs the Vite DEV server on http://localhost:5180. It MUST be the dev server,
+  not a production build/preview: the /media-upload and /media endpoints that let
+  Liz attach screenshots and see image/video previews are Vite dev-server
+  middleware (configureServer in vite.config.ts) and only exist in dev mode. They
+  also read/write the local media-vault/, which is why media only works locally.
+
+  VITE_CONVEX_URL below points the dashboard at production, so localhost:5180 is a
+  full production workstation surface (workflow + media), paired with the staff
+  worker agent. Starts at login, restarts on crash, survives reboot.
+
+  Install / manage with macos/launchd/install-agents.sh.
+  Paths are absolute and specific to this machine (Liz's workstation).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deinfluenced.newsroom.dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/lizw/.local/bin/node</string>
+        <string>/Users/lizw/Developer/newsroom/node_modules/vite/bin/vite.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/lizw/Developer/newsroom</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>VITE_CONVEX_URL</key>
+        <string>https://utmost-chipmunk-181.convex.cloud</string>
+        <key>PATH</key>
+        <string>/Users/lizw/.local/bin:/Users/lizw/.hermes/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/lizw/Library/Logs/newsroom-dashboard.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/lizw/Library/Logs/newsroom-dashboard.log</string>
+</dict>
+</plist>
