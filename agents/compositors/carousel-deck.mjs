@@ -51,7 +51,46 @@ function wrap(text, max, maxLines = 12) {
     }
   }
   if (line) lines.push(line);
-  return lines.slice(0, maxLines);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    kept[maxLines - 1] = kept[maxLines - 1].replace(/[,;:\s]+$/, "") + " …";
+    return kept;
+  }
+  return lines;
+}
+
+// Fit body copy without ever chopping mid-sentence: try the base size, then
+// step the font down (chars-per-line scale up) until it fits; ellipsize only
+// as a last resort at the smallest size.
+function fitBody(text, baseMax, maxLines, baseSize, lineH) {
+  const clean = String(text ?? "").trim();
+  if (!clean) return { lines: [], size: baseSize, lineH };
+  for (const scale of [1, 1.12, 1.28, 1.45]) {
+    const size = Math.round(baseSize / scale);
+    const max = Math.round(baseMax * scale);
+    const words = clean.split(/\s+/);
+    const lines = [];
+    let line = "";
+    for (const word of words) {
+      const next = (line + " " + word).trim();
+      if (line && next.length > max) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    if (line) lines.push(line);
+    if (lines.length <= maxLines) {
+      return { lines, size, lineH: Math.round(lineH * (size / baseSize)) };
+    }
+    if (scale === 1.45) {
+      const kept = lines.slice(0, maxLines);
+      kept[maxLines - 1] = kept[maxLines - 1].replace(/[,;:\s]+$/, "") + " …";
+      return { lines: kept, size, lineH: Math.round(lineH * (size / baseSize)) };
+    }
+  }
+  return { lines: [clean], size: baseSize, lineH };
 }
 
 function slideCopy(section) {
@@ -77,33 +116,42 @@ function kindLabel(kind) {
   return "EVIDENCE";
 }
 
+// Pull ONLY a real citation out of the beat's visual note. The note mixes
+// citations with production directions ("… — footnote; needs Liz asset: …"),
+// and anything that isn't a citation must never reach the rendered slide.
 function splitEvidenceNote(note = "") {
-  const parts = String(note).split(/(?:source|citation|footnote)\s*:/i);
-  if (parts.length < 2) return "";
-  return parts.slice(1).join(" ").trim().replace(/\s+/g, " ").slice(0, 120);
+  const text = String(note).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const found = [];
+  const doi = text.match(/\bDOI\s*:?\s*10\.\d{4,9}\/[^\s;,)"']+/i);
+  if (doi) found.push(doi[0].replace(/^doi\s*:?\s*/i, "DOI "));
+  const pmid = text.match(/\bPMID\s*:?\s*\d{6,9}\b/i);
+  if (pmid) found.push(pmid[0].toUpperCase().replace(/\s+/g, " "));
+  // "Prentice C et al., Menopause, 15 Jul 2026 (via news-medical.net)"
+  const etal = text.match(/[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z.'-]*)?\s+et al\.?,[^;—|]{0,90}/);
+  if (etal) found.push(etal[0].trim().replace(/[,\s]+$/, ""));
+  if (found.length) return [...new Set(found)].join(" · ").slice(0, 120);
+  // fallback: text after an explicit source:/citation: marker, cut hard at the
+  // first separator that starts a production note
+  const marked = text.split(/(?:source|citation)\s*:/i)[1];
+  if (!marked) return "";
+  return marked.split(/\s*(?:—|;|\||\bfootnote\b|\bneeds\b|\bgenerated\b|\boverlay\b|\bshown\b|\basset\b)\s*/i)[0]
+    .trim()
+    .replace(/[,\s]+$/, "")
+    .slice(0, 120);
 }
 
-async function imageCard(imagePath, width, maxHeight, pad = 20, radius = 18) {
+// Full-bleed cover band: the plate fills a wide rounded panel edge to edge
+// instead of floating as a small padded card in empty canvas.
+async function coverBand(imagePath, width, height, radius = 20) {
   const inner = await sharp(imagePath)
-    .resize(width - pad * 2, maxHeight - pad * 2, {
-      fit: "inside",
-      withoutEnlargement: false,
-    })
-    .toBuffer();
-  const meta = await sharp(inner).metadata();
-  const cardW = meta.width + pad * 2;
-  const cardH = meta.height + pad * 2;
-  const bg = await sharp({
-    create: { width: cardW, height: cardH, channels: 4, background: WHITE },
-  })
-    .composite([{ input: inner, left: pad, top: pad }])
-    .png()
+    .resize(width, height, { fit: "cover", position: "attention" })
     .toBuffer();
   const mask = Buffer.from(
-    `<svg width="${cardW}" height="${cardH}"><rect width="${cardW}" height="${cardH}" rx="${radius}" ry="${radius}" fill="#fff"/></svg>`
+    `<svg width="${width}" height="${height}"><rect width="${width}" height="${height}" rx="${radius}" ry="${radius}" fill="#fff"/></svg>`
   );
-  const buffer = await sharp(bg).composite([{ input: mask, blend: "dest-in" }]).png().toBuffer();
-  return { buffer, width: cardW, height: cardH };
+  const buffer = await sharp(inner).composite([{ input: mask, blend: "dest-in" }]).png().toBuffer();
+  return { buffer, width, height };
 }
 
 function svgText(lines, { x, y, size, lineH, fill, weight = "normal", family = SANS, opacity = 1 }) {
@@ -115,24 +163,42 @@ function svgText(lines, { x, y, size, lineH, fill, weight = "normal", family = S
     .join("\n");
 }
 
-function instagramSlideSvg({ preset, copy, index, total, hasImage }) {
+// Shared layout so the SVG text and the composited plate never collide: fit
+// the copy first, then give the plate whatever height remains above the
+// citation/brand footer.
+function layoutInstagram({ preset, copy, hasImage }) {
+  const { width: W, height: H, margin } = preset;
+  const isHook = copy.kind.includes("hook");
+  const headlineLines = wrap(copy.headline, isHook ? 18 : preset.maxHeadline, isHook ? 4 : 3);
+  const headlineSize = isHook ? 76 : 60;
+  const headlineLineH = isHook ? 86 : 68;
+  const headlineY = isHook ? 300 : 210;
+  const body = fitBody(copy.body, preset.maxBody, hasImage ? 6 : 9, isHook ? 38 : 36, 47);
+  const bodyY = headlineY + headlineLines.length * headlineLineH + 30;
+  const bodyEnd = body.lines.length ? bodyY + (body.lines.length - 1) * body.lineH : bodyY - 30;
+  let band = null;
+  if (hasImage) {
+    const bottomReserve = 176; // citation + brand footer
+    const top = Math.max(bodyEnd + 52, 500);
+    const height = Math.max(260, Math.min(isHook ? 520 : 480, H - bottomReserve - top));
+    band = { left: margin, top, width: W - margin * 2, height };
+  }
+  return { isHook, headlineLines, headlineSize, headlineLineH, headlineY, body, bodyY, bodyEnd, band };
+}
+
+function instagramSlideSvg({ preset, copy, index, total, layout }) {
   const { width: W, height: H, margin } = preset;
   const label = kindLabel(copy.kind);
-  const isHook = copy.kind.includes("hook");
   const isCta = copy.kind.includes("cta") || copy.kind.includes("payoff");
-  const headlineLines = wrap(copy.headline, isHook ? 18 : preset.maxHeadline, isHook ? 4 : 3);
-  const bodyLines = wrap(copy.body, preset.maxBody, hasImage ? 5 : 8);
+  const { isHook, headlineLines, headlineSize, headlineLineH, headlineY, body, bodyY, bodyEnd } = layout;
   const source = splitEvidenceNote(copy.visualNote);
   const sourceLines = wrap(source, 58, 2);
-  const headlineSize = isHook ? 76 : 60;
-  const headlineY = isHook ? 320 : 210;
-  const bodyY = headlineY + headlineLines.length * (isHook ? 86 : 68) + 30;
-  const bodyBlock = bodyLines.length
-    ? svgText(bodyLines, {
+  const bodyBlock = body.lines.length
+    ? svgText(body.lines, {
         x: margin,
         y: bodyY,
-        size: isHook ? 38 : 36,
-        lineH: 46,
+        size: body.size,
+        lineH: body.lineH,
         fill: PARCH,
         family: SANS,
       })
@@ -141,7 +207,7 @@ function instagramSlideSvg({ preset, copy, index, total, hasImage }) {
     ? `<text x="${margin}" y="${H - 150}" font-family="${MONO}" font-size="24" font-weight="bold" fill="${ORANGE}" letter-spacing="3">SWIPE FOR THE RECEIPT</text>`
     : "";
   const ctaRule = isCta
-    ? `<rect x="${margin}" y="${bodyY + Math.max(bodyLines.length, 1) * 52 + 30}" width="${W - margin * 2}" height="6" fill="${ORANGE}"/>`
+    ? `<rect x="${margin}" y="${bodyEnd + 34}" width="${W - margin * 2}" height="6" fill="${ORANGE}"/>`
     : "";
   const sourceBlock = sourceLines.length
     ? svgText(sourceLines, {
@@ -165,7 +231,7 @@ function instagramSlideSvg({ preset, copy, index, total, hasImage }) {
     x: margin,
     y: headlineY,
     size: headlineSize,
-    lineH: isHook ? 86 : 68,
+    lineH: headlineLineH,
     fill: WHITE,
     weight: "bold",
   })}
@@ -179,17 +245,17 @@ function instagramSlideSvg({ preset, copy, index, total, hasImage }) {
 
 async function renderInstagramSlide({ copy, index, total, imagePath, out }) {
   const preset = PRESETS.instagram;
-  const { width: W, height: H, margin } = preset;
+  const { width: W } = preset;
   const hasImage = Boolean(imagePath);
-  const svg = instagramSlideSvg({ preset, copy, index, total, hasImage });
+  const layout = layoutInstagram({ preset, copy, hasImage });
+  const svg = instagramSlideSvg({ preset, copy, index, total, layout });
   const composites = [];
-  if (imagePath) {
-    const card = await imageCard(imagePath, W - margin * 2, copy.kind.includes("hook") ? 520 : 430);
-    const top = copy.kind.includes("hook") ? H - card.height - 245 : H - card.height - 185;
+  if (imagePath && layout.band) {
+    const band = await coverBand(imagePath, layout.band.width, layout.band.height);
     composites.push({
-      input: card.buffer,
-      left: Math.round((W - card.width) / 2),
-      top: Math.max(520, top),
+      input: band.buffer,
+      left: Math.round((W - band.width) / 2),
+      top: layout.band.top,
     });
   }
   mkdirSync(dirname(out), { recursive: true });
@@ -201,7 +267,7 @@ async function renderTiktokSlide({ copy, index, total, imagePath, out }) {
   const preset = PRESETS.tiktok;
   const { width: W, height: H, margin } = preset;
   const headlineLines = wrap(copy.headline, preset.maxHeadline, 5);
-  const bodyLines = wrap(copy.body, preset.maxBody, 6);
+  const body = fitBody(copy.body, preset.maxBody, 7, 41, 54);
   const source = splitEvidenceNote(copy.visualNote);
   const sourceLines = wrap(source, 42, 2);
   const isHook = copy.kind.includes("hook");
@@ -232,11 +298,11 @@ async function renderTiktokSlide({ copy, index, total, imagePath, out }) {
     fill: WHITE,
     weight: "bold",
   })}
-  ${svgText(bodyLines, {
+  ${svgText(body.lines, {
     x: margin,
     y: bodyY,
-    size: 41,
-    lineH: 54,
+    size: body.size,
+    lineH: body.lineH,
     fill: PARCH,
   })}
   ${sourceLines.length ? `<rect x="${margin}" y="${H - 340}" width="${W - margin * 2 - 150}" height="2" fill="${ORANGE}" opacity="0.8"/>` : ""}

@@ -6,16 +6,13 @@ import {
   LIVE_ICON,
   METRIC_KEYS,
   STAGES,
+  isCarouselFormat,
   latestCarouselImages,
   liveStatus,
   mediaUrl,
   noteFor,
   pretty,
   fmtTime,
-  reviewIsReady,
-  reviewMissingItems,
-  routeNeedsReview,
-  selectedRouteReview,
   stageIndex,
   stageOf,
 } from "../lib";
@@ -51,7 +48,6 @@ export default function Studio({ storyId, onBack }: { storyId: Id<"stories">; on
     .filter((r: any) => r.status !== "failed")
     .reduce((n: number, r: any) => n + r.estCostUsd, 0);
   const postReviews = data.postReviews ?? [];
-  const latestRouteReview = selectedRouteReview(postReviews, selectedRoute?._id);
 
   const attachRequestFiles = async (requestId: Id<"assetRequests">, files: File[] | FileList | null) => {
     const file = files?.[0];
@@ -128,12 +124,13 @@ export default function Studio({ storyId, onBack }: { storyId: Id<"stories">; on
               story={story}
               master={master}
               images={images}
+              script={script}
               draft={data.postDraft}
               selectedRoute={selectedRoute}
-              latestReview={latestRouteReview}
               reviews={postReviews}
               assetRequests={data.assetRequests ?? []}
               decide={decide}
+              fixVisuals={() => transition({ storyId, to: "design", note: "gate 2: sent back to visuals for a slide fix" })}
             />
           )}
           {stage === "ready" && (
@@ -301,13 +298,15 @@ function ConceptStage({ storyId, selectedRoute }: { storyId: Id<"stories">; sele
 
 function CopyStage({ story, script, claims, estTotal, live, decide }: any) {
   const atGate = story.status === "gate1";
+  const carousel = isCarouselFormat(story.format ?? "");
+  const beats = script?.sections?.length ?? 0;
   return (
     <div className="stage">
       <header className="stage-head">
         <h2>{atGate ? "Approve the copy" : "The desks are writing"}</h2>
         <p>
           {atGate
-            ? "Read the script, check the claims, and approve the copy + the generation spend."
+            ? `Read the script, check the claims, and approve the copy + the generation spend.${carousel && beats ? ` This becomes a ${beats}-slide carousel.` : ""}`
             : `${live.text}. The script lands here the moment it clears legal.`}
         </p>
       </header>
@@ -395,52 +394,107 @@ function AssemblyStage({ storyId, live, images, master }: any) {
 }
 
 // ---- Stage: Final check (Gate 2) ------------------------------------------------------
+// Deck-first: the rendered slides ARE the review. Flick through them, fix a
+// slide by hopping back to visuals, approve when it looks right. The formal
+// quality pass is an optional drawer, never a blocker.
 
-function FinalStage({ storyId, story, master, images, draft, selectedRoute, latestReview, reviews, assetRequests, decide }: any) {
-  const needsReview = routeNeedsReview(selectedRoute);
+function FinalStage({ storyId, story, master, images, script, draft, selectedRoute, reviews, assetRequests, decide, fixVisuals }: any) {
+  const carousel = isCarouselFormat(story.format ?? "") && images.length > 0;
   const outstandingRequiredAssets = (assetRequests ?? []).filter((request: any) => {
     const appliesToActiveScope = !request.routeId || (selectedRoute && request.routeId === selectedRoute._id);
     return appliesToActiveScope && request.required && (request.status === "needed" || request.status === "generating");
   });
-  const reviewMissing = needsReview ? reviewMissingItems(latestReview) : [];
-  const assetMissing = outstandingRequiredAssets.map((request: any) => `Required asset open: ${request.label}`);
-  const approveBlocked = (needsReview && !reviewIsReady(latestReview)) || assetMissing.length > 0;
-  const blockers = [...assetMissing, ...(needsReview ? reviewMissing : [])];
+  const blocked = outstandingRequiredAssets.length > 0;
+  const beats = script?.sections?.length ?? 0;
 
   return (
     <div className="stage">
       <header className="stage-head">
-        <h2>Approve the final</h2>
-        <p>This is what would go out. Watch it, run the quality pass, and make the call.</p>
+        <h2>{carousel ? `Approve the final — ${images.length}-slide carousel` : "Approve the final"}</h2>
+        <p>
+          {carousel
+            ? "This is the deck exactly as it will post. Flick through every slide, fix what's off, approve when it looks right."
+            : "This is what would go out. Watch it, then make the call."}
+        </p>
       </header>
-      <div className="final-preview">
-        <PhonePreview story={story} draft={draft} master={master} images={images} />
-        <div className="final-side">
-          {blockers.length > 0 ? (
-            <div className="review-gate-note blocked">
-              Approval is blocked until these are resolved:
-              <ul className="review-blockers">
-                {blockers.map((item: string) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="review-gate-note ready">
-              {needsReview ? "Quality pass complete — every check is green and proof-backed." : "Fast lane: the quality pass is optional for this concept."}
-            </div>
-          )}
-          <ApprovalBox label="Approve final" blocked={approveBlocked} decide={decide} />
+
+      {carousel && beats > 0 && images.length !== beats && (
+        <p className="warning">
+          The approved script has {beats} beat{beats === 1 ? "" : "s"} but {images.length} slide{images.length === 1 ? "" : "s"} rendered — if that's not what you expect, fix it in visuals before approving.
+        </p>
+      )}
+
+      {carousel ? (
+        <DeckReview images={images} script={script} onFix={fixVisuals} />
+      ) : (
+        <div className="final-preview">
+          <PhonePreview story={story} draft={draft} master={master} images={images} />
+          <div className="final-side">
+            <button className="secondary" onClick={fixVisuals}>← Back to visuals</button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {blocked && (
+        <div className="review-gate-note blocked">
+          Approval is blocked until these required assets are supplied or waived:
+          <ul className="review-blockers">
+            {outstandingRequiredAssets.map((request: any) => (
+              <li key={request._id}>{request.label}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <ApprovalBox label="Approve final" blocked={blocked} decide={decide} />
+
       <ReviewLoop
         key={`${storyId}:${selectedRoute?._id ?? "no-route"}`}
         storyId={storyId}
         routeId={selectedRoute?._id}
         reviews={reviews}
         assetRequests={assetRequests}
-        startOpen={needsReview && approveBlocked}
+        startOpen={false}
       />
+    </div>
+  );
+}
+
+// One rendered slide in focus with its beat alongside; filmstrip to jump.
+function DeckReview({ images, script, onFix }: any) {
+  const [idx, setIdx] = useState(0);
+  const slides = images as any[];
+  const current = Math.min(idx, slides.length - 1);
+  const active = slides[current];
+  const sectionIndex = noteFor(active)?.sectionIndex ?? current;
+  const beat = script?.sections?.[sectionIndex];
+
+  return (
+    <div className="deck-review">
+      <div className="deck-main">
+        <a className="deck-slide" href={mediaUrl(active?.filePath)} target="_blank" rel="noreferrer">
+          <img src={mediaUrl(active?.filePath)} alt={`Slide ${current + 1}`} />
+        </a>
+        <div className="deck-side">
+          <span className="slide-label">
+            Slide {current + 1} of {slides.length}
+            {beat ? ` · ${pretty(beat.kind)}` : ""}
+          </span>
+          {beat && <p className="beat-line">{beat.text}</p>}
+          <button className="secondary" onClick={onFix}>Fix this slide →</button>
+          <p className="muted">
+            Fix reopens the visuals stage: edit the prompt or pick a different plate, then
+            "Send to assembly" re-renders the deck and brings it straight back here.
+          </p>
+        </div>
+      </div>
+      <div className="filmstrip">
+        {slides.map((s: any, i: number) => (
+          <button key={s._id} className={`film-cell ${i === current ? "active" : ""}`} onClick={() => setIdx(i)}>
+            <img src={mediaUrl(s.filePath)} alt="" />
+            <span className="film-tag">{i + 1}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -485,6 +539,19 @@ function ReadyStage({ story, draft, master, images, markPosted }: any) {
             <a className="path-pill" href={mediaUrl(master.filePath)} target="_blank" rel="noreferrer">
               Download final video ↗
             </a>
+          )}
+          {images.length > 1 && (
+            <div className="ready-deck">
+              <span className="slide-label">All {images.length} slides — click to open/save</span>
+              <div className="filmstrip">
+                {images.map((s: any, i: number) => (
+                  <a key={s._id} className="film-cell" href={mediaUrl(s.filePath)} target="_blank" rel="noreferrer">
+                    <img src={mediaUrl(s.filePath)} alt="" />
+                    <span className="film-tag">{i + 1}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
           )}
           <button className="primary wide" onClick={markPosted}>Mark posted</button>
         </div>

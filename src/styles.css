@@ -595,6 +595,30 @@ main { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: 
   padding: 2px 7px;
 }
 
+/* ---- Deck review (Gate 2) -------------------------------------------------------------- */
+
+.deck-review { display: flex; flex-direction: column; gap: 14px; }
+.deck-main {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) { .deck-main { grid-template-columns: 1fr; } }
+.deck-slide {
+  display: block;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: #0d0f12;
+}
+.deck-slide img { width: 100%; display: block; }
+.deck-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.deck-side .beat-line { font-size: 14px; white-space: pre-wrap; }
+.deck-side .secondary { align-self: flex-start; }
+.ready-deck { display: flex; flex-direction: column; gap: 8px; }
+a.film-cell { text-decoration: none; }
+
 /* ---- Review loop --------------------------------------------------------------------- */
 
 .review-loop { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel-2); }

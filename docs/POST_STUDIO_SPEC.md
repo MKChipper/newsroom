@@ -225,6 +225,12 @@ post package and now also saves a `postDraft` row for dashboard display.
 
 ### Post Craft Review Loop
 
+> **2026-07-16 update:** the review loop below is now OPTIONAL and never blocks
+> Gate 2. Approval happens by inspecting the rendered deck itself in the
+> deck-first Final stage (numbered slides, per-slide fix back into visuals).
+> Only outstanding required asset requests still block approval. The form and
+> its validation rules remain for when a documented pass is wanted.
+
 Every Tier 2, Tier 3, and Tier 4 post should carry a short review log before
 Gate 2 approval. The review loop is defined in the Brain doc
 `post-craft-review-loop` and checks:

@@ -33,42 +33,12 @@ const TRANSITIONS: Record<string, string[]> = {
   killed: [],
 };
 
-const reviewProofFields = [
-  "firstFrame",
-  "hookPromise",
-  "messageSpine",
-  "appResolver",
-  "cta",
-  "pixelEvidence",
-  "finalViewerAction",
-];
-
-const reviewGateFields = [
-  "formatLock",
-  "hook",
-  "messageSpine",
-  "appResolver",
-  "assetTruth",
-  "voiceCompliance",
-  "pixelMotion",
-  "platformNative",
-];
-
-const reviewReady = (review: any) =>
-  review?.decision === "ready" &&
-  reviewGateFields.every((field) => review.gates?.[field] === "green") &&
-  reviewProofFields.every((field) => (review.proof?.[field] ?? "").trim().length >= 12) &&
-  (review.artifactPath ?? "").trim().length >= 6 &&
-  (review.contactSheetPath ?? "").trim().length >= 6 &&
-  !(review.nextAssetNeeded ?? "").trim();
-
 const assertGate2ReviewReady = async (ctx: any, storyId: any) => {
   const routes = await ctx.db
     .query("formatRoutes")
     .withIndex("by_story", (q: any) => q.eq("storyId", storyId))
     .collect();
   const selectedRoute = routes.find((route: any) => route.selected);
-  const tier = Number(selectedRoute?.tier ?? 1);
 
   const assetRequests = await ctx.db
     .query("assetRequests")
@@ -85,20 +55,10 @@ const assertGate2ReviewReady = async (ctx: any, storyId: any) => {
     throw new Error(`Gate 2 approval requires required assets to be supplied, selected, or waived: ${labels}`);
   }
 
-  if (!selectedRoute) return;
-  if (tier < 2) return;
-
-  const reviews = await ctx.db
-    .query("postReviews")
-    .withIndex("by_story", (q: any) => q.eq("storyId", storyId))
-    .collect();
-  const latestRouteReview = reviews
-    .filter((review: any) => review.routeId === selectedRoute._id)
-    .sort((a: any, b: any) => b.updatedAt - a.updatedAt)[0];
-
-  if (!reviewReady(latestRouteReview)) {
-    throw new Error("Gate 2 approval requires a ready review loop pass with every gate green, a rendered artifact path, contact sheet or stills evidence, and proof for the hook, message, app resolver, CTA, pixel pass, and final viewer action.");
-  }
+  // The structured review loop is deliberately OPTIONAL (2026-07-16): Liz
+  // approves by looking at the rendered deck itself. The full form remains
+  // available for when she wants a documented pass, but it never blocks the
+  // gate. Only genuinely missing required assets (above) block approval.
 };
 
 export const board = query({

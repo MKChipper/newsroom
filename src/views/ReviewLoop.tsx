@@ -17,9 +17,9 @@ import {
   shortDate,
 } from "../lib";
 
-// The Gate-2 quality pass. Same rules as before (Tier 2+ concepts must loop until
-// green + proof-backed), but folded away so it only takes over the screen when
-// you're actually running a pass.
+// The structured quality pass — OPTIONAL since 2026-07-16. Approval happens by
+// looking at the rendered deck; this drawer exists for when Liz wants a
+// documented pass, and it never blocks Gate 2.
 export default function ReviewLoop({
   storyId,
   routeId,
@@ -134,7 +134,7 @@ export default function ReviewLoop({
   return (
     <details className="review-loop rail-acc" open={startOpen}>
       <summary>
-        Quality pass
+        Quality pass (optional)
         {latest && (
           <span className={`pill review-${reviewTone(latest)}`}>
             pass {latest.passNo} · {pretty(latest.decision)}
@@ -163,7 +163,7 @@ export default function ReviewLoop({
         </div>
       )}
       {!latest && (
-        <p className="muted">No pass yet for this concept. Tier 2+ posts must loop here before the final can be approved.</p>
+        <p className="muted">No pass saved for this concept. Entirely optional — approve from the deck above whenever it looks right.</p>
       )}
 
       {routeReviews.length > 1 && (
